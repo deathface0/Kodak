@@ -1,4 +1,4 @@
-#include <windows.h>
+#include <fstream>
 #include "utils.h"
 
 struct KODAK_INFO {
@@ -30,7 +30,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             UINT32 width = abs(kinfo.currentPoint.x - kinfo.startPoint.x);
             UINT32 height = abs(kinfo.currentPoint.y - kinfo.startPoint.y);
             hBitmap = CaptureScreen(kinfo.startPoint.x, kinfo.startPoint.y, width, height);
-            SaveHBITMAPToFile(hBitmap, "kodak_screenshot.png", "png");
+            //SaveHBITMAPToFile(hBitmap, "kodak_screenshot.png", "png");
+
+            std::string base64_image = EncodeHBITMAPToBase64(hBitmap, "png");
+            if (!base64_image.empty()) {
+                std::string html = "<img src='" + base64_image + "' />";
+                std::string temp_file = std::tmpnam(nullptr);
+                temp_file += ".html";
+
+                std::ofstream out(temp_file);
+                out << html;
+                out.close();
+
+                ShellExecuteA(NULL, "open", temp_file.c_str(), NULL, NULL, SW_SHOWNORMAL);
+            }
 
             ReleaseCapture();
             InvalidateRect(hwnd, NULL, TRUE);
