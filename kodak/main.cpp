@@ -1,5 +1,8 @@
 #include <fstream>
 #include "utils.h"
+#include <iostream>
+#include <thread>
+#include <chrono>
 
 struct KODAK_INFO {
     HCURSOR hCursor;
@@ -34,7 +37,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             std::string base64_image = EncodeHBITMAPToBase64(hBitmap, "png");
             if (!base64_image.empty()) {
-                std::string html = "<img src='" + base64_image + "' />";
+                std::string html = "<title>Kodak Screenshot</title><img src='" + base64_image + "' />";
                 std::string temp_file = std::tmpnam(nullptr);
                 temp_file += ".html";
 
@@ -48,7 +51,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ReleaseCapture();
             InvalidateRect(hwnd, NULL, TRUE);
 
-            PostQuitMessage(0);
+            ShowWindow(hwnd, SW_HIDE);
         }
         break;
     }
@@ -122,8 +125,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush); // Set the window background color
     InvalidateRect(hwnd, NULL, TRUE); // Force the window to redraw
 
-    ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
+
+    std::thread([&] {
+        while (true) {
+            if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) &&
+                (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
+                (GetAsyncKeyState('S') & 0x8000))
+            {
+                ShowWindow(hwnd, SW_SHOW);
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Prevent CPU overuse
+        }
+        }).detach();
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {

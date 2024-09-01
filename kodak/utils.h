@@ -71,7 +71,7 @@ std::string EncodeHBITMAPToBase64(HBITMAP hBitmap, const std::string& format)
         stbi_write_jpg_to_func([](void* context, void* data, int size) {
             std::vector<unsigned char>* output = static_cast<std::vector<unsigned char>*>(context);
             output->insert(output->end(), static_cast<unsigned char*>(data), static_cast<unsigned char*>(data) + size);
-            }, &output, width, height, channels, pixels.data(), 90);
+            }, &output, width, height, channels, pixels.data(), 100);
     }
     else
     {
