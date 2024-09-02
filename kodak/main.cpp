@@ -5,6 +5,8 @@
 #include <chrono>
 
 struct KODAK_INFO {
+    HWND hwnd;
+    HHOOK kbHook;
     HCURSOR hCursor;
     POINT startPoint;
     POINT currentPoint;
@@ -23,44 +25,53 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
     case WM_LBUTTONUP: {
-        if (kinfo.isDrawing) {
-            ShowWindow(hwnd, FALSE);
+        if (!kinfo.isDrawing)
+            break;
 
-            kinfo.currentPoint.x = LOWORD(lParam);
-            kinfo.currentPoint.y = HIWORD(lParam);
-            kinfo.isDrawing = false;
+        ShowWindow(hwnd, FALSE);
 
-            UINT32 width = abs(kinfo.currentPoint.x - kinfo.startPoint.x);
-            UINT32 height = abs(kinfo.currentPoint.y - kinfo.startPoint.y);
-            hBitmap = CaptureScreen(kinfo.startPoint.x, kinfo.startPoint.y, width, height);
-            //SaveHBITMAPToFile(hBitmap, "kodak_screenshot.png", "png");
+        kinfo.currentPoint.x = LOWORD(lParam);
+        kinfo.currentPoint.y = HIWORD(lParam);
+        kinfo.isDrawing = false;
 
-            std::string base64_image = EncodeHBITMAPToBase64(hBitmap, "png");
-            if (!base64_image.empty()) {
-                std::string html = "<title>Kodak Screenshot</title><img src='" + base64_image + "' />";
-                std::string temp_file = std::tmpnam(nullptr);
-                temp_file += ".html";
+        // Calculate the top-left corner of the rectangle
+        int x = min(kinfo.startPoint.x, kinfo.currentPoint.x);
+        int y = min(kinfo.startPoint.y, kinfo.currentPoint.y);
 
-                std::ofstream out(temp_file);
-                out << html;
-                out.close();
+        // Calculate the width and height of the rectangle
+        UINT width = abs(kinfo.currentPoint.x - kinfo.startPoint.x);
+        UINT height = abs(kinfo.currentPoint.y - kinfo.startPoint.y);
 
-                ShellExecuteA(NULL, "open", temp_file.c_str(), NULL, NULL, SW_SHOWNORMAL);
-            }
+        hBitmap = CaptureScreen(x, y, width, height);
 
-            ReleaseCapture();
-            InvalidateRect(hwnd, NULL, TRUE);
+        std::string base64_image = EncodeHBITMAPToBase64(hBitmap, "png");
+        if (!base64_image.empty()) {
+            std::string html = "<title>Kodak Screenshot</title><img src='" + base64_image + "' />";
+            std::string temp_file = std::tmpnam(nullptr);
+            temp_file += ".html";
 
-            ShowWindow(hwnd, SW_HIDE);
+            std::ofstream out(temp_file);
+            out << html;
+            out.close();
+
+            ShellExecuteA(NULL, "open", temp_file.c_str(), NULL, NULL, SW_SHOWNORMAL);
         }
+
+        ReleaseCapture();
+        InvalidateRect(hwnd, NULL, TRUE);
+
+        ShowWindow(hwnd, SW_HIDE);
+
         break;
     }
     case WM_MOUSEMOVE: {
-        if (kinfo.isDrawing) {
-            kinfo.currentPoint.x = LOWORD(lParam);
-            kinfo.currentPoint.y = HIWORD(lParam);
-            InvalidateRect(hwnd, NULL, TRUE);
-        }
+        if (!kinfo.isDrawing)
+            break;
+
+        kinfo.currentPoint.x = LOWORD(lParam);
+        kinfo.currentPoint.y = HIWORD(lParam);
+        InvalidateRect(hwnd, NULL, TRUE);
+
         break;
     }
     case WM_SETCURSOR: {
@@ -108,7 +119,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     RegisterClass(&wc);
 
-    HWND hwnd = CreateWindowExW(
+    kinfo.hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOPMOST,  // Extended window styles
         L"KodakWindow",                 // Class name
         L"Kodak",                       // Window title
@@ -119,13 +130,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         NULL, NULL, hInstance, NULL
     );
     
-    SetWindowLongW(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED); // Set the window to be layered
-    SetLayeredWindowAttributes(hwnd, 0, 124, LWA_ALPHA); // Set the opacity (128 for 50% transparency)
+    SetWindowLongW(kinfo.hwnd, GWL_EXSTYLE, GetWindowLong(kinfo.hwnd, GWL_EXSTYLE) | WS_EX_LAYERED); // Set the window to be layered
+    SetLayeredWindowAttributes(kinfo.hwnd, 0, 124, LWA_ALPHA); // Set the opacity (128 for 50% transparency)
     HBRUSH hBrush = CreateSolidBrush(RGB(24, 24, 24)); // Create brush
-    SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush); // Set the window background color
-    InvalidateRect(hwnd, NULL, TRUE); // Force the window to redraw
+    SetClassLongPtr(kinfo.hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush); // Set the window background color
+    InvalidateRect(kinfo.hwnd, NULL, TRUE); // Force the window to redraw
 
-    UpdateWindow(hwnd);
+    UpdateWindow(kinfo.hwnd);
 
     std::thread([&] {
         while (true) {
@@ -133,7 +144,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
                 (GetAsyncKeyState('S') & 0x8000))
             {
-                ShowWindow(hwnd, SW_SHOW);
+                ShowWindow(kinfo.hwnd, SW_SHOW);
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Prevent CPU overuse
@@ -145,6 +156,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
+
+    UnhookWindowsHookEx(kinfo.kbHook);
 
     return 0;
 }
