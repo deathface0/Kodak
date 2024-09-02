@@ -20,13 +20,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_LBUTTONDOWN: {
         kinfo.startPoint.x = LOWORD(lParam);
         kinfo.startPoint.y = HIWORD(lParam);
-        kinfo.isDrawing = true;
+        kinfo.isDrawing = IsWindowVisible(hwnd) ? true : false;
         SetCapture(hwnd);
         break;
     }
     case WM_LBUTTONUP: {
         if (!kinfo.isDrawing)
             break;
+
+        MessageBoxA(NULL, "CAPCA", "CHECK", MB_OK);
 
         ShowWindow(hwnd, FALSE);
 
@@ -144,7 +146,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 (GetAsyncKeyState(VK_SHIFT) & 0x8000) &&
                 (GetAsyncKeyState('S') & 0x8000))
             {
+                SetForegroundWindow(kinfo.hwnd);
                 ShowWindow(kinfo.hwnd, SW_SHOW);
+            }
+            else if (GetAsyncKeyState(VK_ESCAPE))
+            {
+                ShowWindow(kinfo.hwnd, SW_HIDE);
+                kinfo.isDrawing = false;
+                InvalidateRect(kinfo.hwnd, NULL, TRUE); // Force the window to redraw
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Prevent CPU overuse
