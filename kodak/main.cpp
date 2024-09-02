@@ -28,8 +28,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (!kinfo.isDrawing)
             break;
 
-        MessageBoxA(NULL, "CAPCA", "CHECK", MB_OK);
-
         ShowWindow(hwnd, FALSE);
 
         kinfo.currentPoint.x = LOWORD(lParam);
