@@ -8,6 +8,32 @@
 #include <sstream>
 #include "stb_image_write.h"
 
+#define ID_TRAY_APP_ICON    1001
+#define ID_TRAY_EXIT        1002
+#define WM_TRAYICON         (WM_USER + 1)
+
+NOTIFYICONDATA nid;
+
+void AddTrayIcon(HWND hwnd) {
+    memset(&nid, 0, sizeof(NOTIFYICONDATA));
+
+    nid.cbSize = sizeof(NOTIFYICONDATA);
+    nid.hWnd = hwnd;
+    nid.uID = ID_TRAY_APP_ICON;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_TRAYICON;
+    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+
+#ifdef UNICODE
+    wcscpy_s(nid.szTip, L"Kodak"); // For Unicode
+#else
+    strcpy_s(nid.szTip, "Kodak");  // For ANSI
+#endif
+
+    Shell_NotifyIcon(NIM_ADD, &nid);
+}
+
+
 std::string base64_encode(const std::vector<unsigned char>& data) {
     static const char* encoding = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::stringstream ss;

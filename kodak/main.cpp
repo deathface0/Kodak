@@ -98,7 +98,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         break;
     }
+    case WM_TRAYICON:
+        if (LOWORD(lParam) == WM_RBUTTONDOWN) {
+            // Create the menu
+            HMENU hMenu = CreatePopupMenu();
+            if (hMenu) {
+                // Add menu items
+                InsertMenu(hMenu, -1, MF_BYPOSITION | MF_STRING, ID_TRAY_EXIT, TEXT("Exit"));
+
+                // Get the current cursor position (where the user clicked)
+                POINT cursorPos;
+                GetCursorPos(&cursorPos);
+
+                // Display the context menu
+                SetForegroundWindow(hwnd); // Required to bring the menu to the foreground
+                TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, cursorPos.x, cursorPos.y, 0, hwnd, NULL);
+
+                DestroyMenu(hMenu); // Destroy the menu after use
+            }
+        }
+        break;
+
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case ID_TRAY_EXIT:
+            DestroyWindow(hwnd);
+            break;
+        }
+        break;
     case WM_DESTROY: {
+        Shell_NotifyIcon(NIM_DELETE, &nid);
         PostQuitMessage(0);
         break;
     }
@@ -116,6 +145,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = L"KodakWindow";
+    wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
 
     RegisterClass(&wc);
 
@@ -156,7 +186,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
             std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Prevent CPU overuse
         }
-        }).detach();
+        }
+    ).detach();
+
+    // Add the tray icon
+    AddTrayIcon(kinfo.hwnd);
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
