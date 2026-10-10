@@ -1,12 +1,34 @@
-## Kodak Screenshot Tool
+# Kodak
 
-Kodak is a lightweight Windows application designed for quick and easy screen capturing. By pressing a specific key combination (`Ctrl + Shift + S`), the tool allows you to select a portion of your screen to capture. The captured area is automatically saved as an image and can be opened in a temporary HTML file for easy viewing. The tool is designed to be unobtrusive, operating in the background and only appearing when activated by the hotkey combination. It also includes a built-in escape mechanism to hide the capture window if necessary.
+[![CI](https://github.com/deathface0/Kodak/actions/workflows/ci.yml/badge.svg?branch=v2)](https://github.com/deathface0/Kodak/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-### Key Features:
-- **Hotkey Activation**: Quickly activate the screen capture tool with `Ctrl + Shift + S`.
-- **Custom Selection**: Click and drag to select the portion of the screen you want to capture.
-- **Image Export**: Automatically encodes the captured image in Base64 format and opens it in a temporary HTML file.
-- **Transparency**: The capture window is semi-transparent, allowing you to see the content behind it as you select.
-- **Escape Functionality**: Press `Escape` to cancel the selection and hide the tool.
+Screenshots for Windows that redact sensitive data before they leave the computer. Everything runs locally.
 
-This tool is ideal for anyone who needs a simple and efficient way to capture and share parts of their screen without the need for complex software.
+> **Work in progress.** This branch (`v2`) is a full rewrite. The original version is tagged
+> [`v1.0`](https://github.com/deathface0/Kodak/tree/v1.0).
+
+## Layout
+
+| Directory | CMake target | Contents |
+| --- | --- | --- |
+| `core/` | `kodak_core` | Plain C++ (no Windows headers): image and geometry types, detectors, text rules, redaction |
+| `win/` | `kodak_win` | Everything that talks to Windows: capture, OCR, PNG and clipboard output, hotkey, tray |
+| `app/` | `kodak` | The executable: overlay window, review, settings; `res/` holds the manifest |
+| `tests/` | `kodak_core_tests` | doctest unit tests; `tests/core/` also runs on Linux |
+
+Public headers live in `<dir>/include/kodak/<layer>/`, sources in `<dir>/src/`.
+
+## Building
+
+Requires CMake 3.21+ and Visual Studio 2022 (MSVC). On Linux only `kodak_core` and its tests build.
+
+```
+cmake --preset msvc
+cmake --build --preset msvc-debug
+ctest --preset msvc-debug
+```
+
+## License
+
+[MIT](LICENSE)

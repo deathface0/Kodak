@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  msvc:
+    name: MSVC ${{ matrix.config }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [debug, release]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up the MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake --preset msvc-ninja -DKODAK_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build --preset msvc-ninja-${{ matrix.config }}
+
+      - name: Test
+        run: ctest --preset msvc-ninja-${{ matrix.config }}
+
+  core-linux:
+    name: kodak_core on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: cmake --preset linux -DKODAK_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build --preset linux
+
+      - name: Test
+        run: ctest --preset linux
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check formatting (same clang-format version as Visual Studio 2022)
+        run: pipx run clang-format==19.1.5 --dry-run --Werror $(git ls-files '*.h' '*.cpp')

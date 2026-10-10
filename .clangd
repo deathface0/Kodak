@@ -1,0 +1,4 @@
+# clangd reads the compile commands of the msvc-ninja preset
+# (configure it once: cmake --preset msvc-ninja, from a developer prompt).
+CompileFlags:
+  CompilationDatabase: build/msvc-ninja
