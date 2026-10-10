@@ -21,8 +21,18 @@ struct Rect {
 
     constexpr bool empty() const noexcept { return width <= 0 || height <= 0; }
 
+    /// True for the pixels inside; the right and bottom edges are exclusive.
+    constexpr bool contains(Point p) const noexcept {
+        return p.x >= x && p.y >= y && p.x < x + width && p.y < y + height;
+    }
+
     friend constexpr bool operator==(const Rect&, const Rect&) noexcept = default;
 };
+
+/// `r` moved by (dx, dy).
+constexpr Rect offset(const Rect& r, int dx, int dy) noexcept {
+    return {r.x + dx, r.y + dy, r.width, r.height};
+}
 
 /// The overlap of two rectangles; empty (all zero) when they do not overlap.
 constexpr Rect intersect(const Rect& a, const Rect& b) noexcept {

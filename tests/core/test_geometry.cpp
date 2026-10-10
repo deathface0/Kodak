@@ -4,6 +4,7 @@
 
 using kodak::core::fromCorners;
 using kodak::core::intersect;
+using kodak::core::offset;
 using kodak::core::Point;
 using kodak::core::Rect;
 
@@ -33,4 +34,18 @@ TEST_CASE("fromCorners covers both pixels whichever way the drag goes") {
 
 TEST_CASE("fromCorners of a single pixel is 1x1") {
     CHECK(fromCorners(Point{7, 7}, Point{7, 7}) == Rect{7, 7, 1, 1});
+}
+
+TEST_CASE("contains includes the top-left edge and excludes the bottom-right one") {
+    const Rect r{2, 3, 4, 5};
+    CHECK(r.contains(Point{2, 3}));
+    CHECK(r.contains(Point{5, 7}));
+    CHECK_FALSE(r.contains(Point{6, 7}));
+    CHECK_FALSE(r.contains(Point{5, 8}));
+    CHECK_FALSE(r.contains(Point{1, 3}));
+    CHECK_FALSE(Rect{}.contains(Point{0, 0}));
+}
+
+TEST_CASE("offset moves a rectangle and keeps its size") {
+    CHECK(offset(Rect{10, 20, 3, 4}, -10, 5) == Rect{0, 25, 3, 4});
 }

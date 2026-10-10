@@ -17,8 +17,10 @@ target_include_directories(kodak_doctest SYSTEM INTERFACE ${CMAKE_CURRENT_BINARY
 add_executable(kodak_core_tests
     main.cpp
     core/test_file_name.cpp
+    core/test_finding.cpp
     core/test_geometry.cpp
     core/test_image.cpp
+    core/test_redaction.cpp
     core/test_selection.cpp
 )
 target_link_libraries(kodak_core_tests PRIVATE kodak::core kodak_doctest kodak_build_options)

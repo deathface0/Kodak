@@ -1,5 +1,6 @@
 #pragma once
 
+#include <kodak/core/Finding.h>
 #include <kodak/core/Geometry.h>
 #include <kodak/core/Image.h>
 #include <kodak/win/ScreenSource.h>
@@ -7,18 +8,20 @@
 #include <windows.h>
 
 #include <d2d1.h>
+#include <dwrite.h>
 #include <wrl/client.h>
 
 #include <functional>
-#include <optional>
+#include <vector>
 
 namespace kodak::app {
 
-/// The full-screen window over the frozen capture where the user drags a
-/// selection. Escape, a right click or switching away cancels.
+/// The full-screen window over the frozen capture. The user drags a selection,
+/// then reviews it: draws solid boxes over what must not be shared and
+/// confirms with Enter or a double-click. Esc or switching away cancels.
 class Overlay {
 public:
-    /// Receives the selected pixels once the user releases the mouse.
+    /// Receives the selected pixels, already redacted, once the user confirms.
     using SelectHandler = std::function<void(const core::Image&)>;
 
     Overlay(HINSTANCE instance, SelectHandler onSelect);
@@ -32,28 +35,48 @@ public:
     bool visible() const noexcept;
 
 private:
+    enum class Mode { Selecting, Reviewing };
+    enum class Drag { None, Selection, Box };
+
     static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handle(UINT message, WPARAM wParam, LPARAM lParam);
 
+    void onButtonDown(core::Point p);
+    void onButtonUp(core::Point p);
+    void onRightClick(core::Point p);
+    void removeLastBox();
+
     void paint();
+    void paintHelp();
     bool createDeviceResources();
     void releaseDeviceResources() noexcept;
     core::Point clampToImage(LPARAM lParam) const noexcept;
-    void select(const core::Rect& selection);
+    void redraw() noexcept;
+
+    /// Crops the selection, paints the boxes over it and hands it to onSelect_.
+    void confirm();
     /// Hides the window and wipes the capture from memory.
     void close() noexcept;
 
     HWND window_ = nullptr;
     SelectHandler onSelect_;
     win::ScreenCapture capture_;
-    std::optional<core::Point> anchor_; // set while the left button is down
+
+    Mode mode_ = Mode::Selecting;
+    Drag drag_ = Drag::None;
+    core::Point anchor_; // where the current drag started
     core::Point current_;
+    core::Rect selection_;             // valid while reviewing
+    std::vector<core::Finding> boxes_; // in capture coordinates, inside selection_
 
     Microsoft::WRL::ComPtr<ID2D1Factory> factory_;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> veil_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> border_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_; // recoloured for each shape
+
+    Microsoft::WRL::ComPtr<IDWriteFactory> writeFactory_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> helpFormat_;
+    UINT helpDpi_ = 0; // DPI helpFormat_ was sized for
 };
 
 } // namespace kodak::app

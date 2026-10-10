@@ -6,4 +6,4 @@ add_executable(kodak WIN32
     res/kodak.manifest
 )
 
-target_link_libraries(kodak PRIVATE kodak::win d2d1 kodak_build_options)
+target_link_libraries(kodak PRIVATE kodak::win d2d1 dwrite shcore kodak_build_options)
