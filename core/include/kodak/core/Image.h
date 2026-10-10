@@ -24,4 +24,7 @@ struct Image {
 /// A copy of the part of `area` that lies inside `image`; empty if they do not overlap.
 Image crop(const Image& image, const Rect& area);
 
+/// Sets every pixel's alpha to 255 (screen captures come back with alpha 0).
+void makeOpaque(Image& image) noexcept;
+
 } // namespace kodak::core

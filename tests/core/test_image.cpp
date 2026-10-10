@@ -4,10 +4,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 using kodak::core::crop;
 using kodak::core::Image;
-using kodak::core::Rect;
+using kodak::core::makeOpaque;
 
 namespace {
 
@@ -67,4 +68,11 @@ TEST_CASE("crop outside the image or with no size is empty") {
     const Image image = gradient(10, 8);
     CHECK(crop(image, {20, 20, 5, 5}).empty());
     CHECK(crop(image, {2, 2, 0, 5}).empty());
+}
+
+TEST_CASE("makeOpaque sets alpha to 255 and leaves the colour alone") {
+    Image image(2, 1);
+    image.bgra = {10, 20, 30, 0, 40, 50, 60, 7};
+    makeOpaque(image);
+    CHECK(image.bgra == std::vector<std::uint8_t>{10, 20, 30, 255, 40, 50, 60, 255});
 }

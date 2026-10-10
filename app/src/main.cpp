@@ -1,11 +1,14 @@
-#include "kodak/win/SingleInstance.h"
+#include "App.h"
+
+#include <kodak/win/SingleInstance.h>
 
 #include <windows.h>
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    const kodak::win::SingleInstance instance(L"Local\\Kodak.SingleInstance");
-    if (!instance.isFirst()) return 0;
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    const kodak::win::SingleInstance singleInstance(L"Local\\Kodak.SingleInstance");
+    if (!singleInstance.isFirst()) return 0;
 
-    // Phase 1 adds the hotkey, the tray icon and the overlay here.
-    return 0;
+    kodak::app::App app(instance);
+    if (!app.valid()) return 1;
+    return app.run();
 }

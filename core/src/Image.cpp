@@ -35,4 +35,8 @@ Image crop(const Image& image, const Rect& area) {
     return result;
 }
 
+void makeOpaque(Image& image) noexcept {
+    for (std::size_t i = 3; i < image.bgra.size(); i += bytesPerPixel) image.bgra[i] = 255;
+}
+
 } // namespace kodak::core

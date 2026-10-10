@@ -4,6 +4,14 @@
 
 namespace kodak::core {
 
+/// A pixel position.
+struct Point {
+    int x = 0;
+    int y = 0;
+
+    friend constexpr bool operator==(Point, Point) noexcept = default;
+};
+
 /// An axis-aligned rectangle in pixels.
 struct Rect {
     int x = 0;
@@ -24,6 +32,14 @@ constexpr Rect intersect(const Rect& a, const Rect& b) noexcept {
     const int bottom = std::min(a.y + a.height, b.y + b.height);
     if (right <= left || bottom <= top) return {};
     return {left, top, right - left, bottom - top};
+}
+
+/// The rectangle covering both pixels and everything between them, whichever
+/// corner each one is (a drag can go in any direction).
+constexpr Rect fromCorners(Point a, Point b) noexcept {
+    const int left = std::min(a.x, b.x);
+    const int top = std::min(a.y, b.y);
+    return {left, top, std::max(a.x, b.x) - left + 1, std::max(a.y, b.y) - top + 1};
 }
 
 } // namespace kodak::core
