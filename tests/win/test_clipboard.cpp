@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 using kodak::core::Image;
 using kodak::win::copyImageToClipboard;
@@ -51,6 +52,29 @@ TEST_CASE("an image copied to the clipboard reads back as the same CF_DIBV5 pixe
             CHECK(pixels[(1 - row) * rowBytes + i] == image.bgra[row * rowBytes + i]);
     }
 
+    GlobalUnlock(data);
+    CloseClipboard();
+}
+
+TEST_CASE("PNG bytes go on the clipboard as the \"PNG\" format, unchanged") {
+    const Image image(4, 4);
+    const std::vector<std::uint8_t> png{0x89, 'P', 'N', 'G', 1, 2, 3};
+
+    const ClipboardOwner owner;
+    REQUIRE(owner.window != nullptr);
+    if (!copyImageToClipboard(owner.window, image, png)) {
+        MESSAGE("clipboard unavailable in this session; skipped");
+        return;
+    }
+
+    REQUIRE(OpenClipboard(owner.window));
+    CHECK(IsClipboardFormatAvailable(CF_DIBV5));
+    HANDLE data = GetClipboardData(RegisterClipboardFormatW(L"PNG"));
+    REQUIRE(data != nullptr);
+    const auto* bytes = static_cast<const std::uint8_t*>(GlobalLock(data));
+    REQUIRE(bytes != nullptr);
+    REQUIRE(GlobalSize(data) >= png.size());
+    CHECK(std::vector<std::uint8_t>(bytes, bytes + png.size()) == png);
     GlobalUnlock(data);
     CloseClipboard();
 }

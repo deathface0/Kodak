@@ -1,5 +1,6 @@
 # Plain C++: no Windows headers here, so it builds and is tested on Linux too.
 add_library(kodak_core STATIC
+    src/FileName.cpp
     src/Image.cpp
 )
 add_library(kodak::core ALIAS kodak_core)

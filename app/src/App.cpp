@@ -1,9 +1,14 @@
 #include "App.h"
 
+#include <kodak/win/CaptureFiles.h>
 #include <kodak/win/Clipboard.h>
+#include <kodak/win/PngEncoder.h>
 
+#include <shellapi.h>
 #include <windowsx.h>
 
+#include <cstdint>
+#include <span>
 #include <utility>
 
 namespace kodak::app {
@@ -17,12 +22,11 @@ constexpr UINT_PTR captureTimerId = 1;
 // Lets the tray menu finish fading out so it is not in the capture.
 constexpr UINT menuFadeDelayMs = 250;
 
-enum MenuCommand : UINT { menuCapture = 1, menuExit };
+enum MenuCommand : UINT { menuCapture = 1, menuOpenFolder, menuExit };
 
 } // namespace
 
-App::App(HINSTANCE instance)
-    : overlay_(instance, [this](const core::Image& image) { copyToClipboard(image); }) {
+App::App(HINSTANCE instance) : overlay_(instance, [this](const core::Image& image) { deliver(image); }) {
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
     windowClass.lpfnWndProc = windowProc;
@@ -122,6 +126,7 @@ void App::showMenu(POINT anchor) {
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
     AppendMenuW(menu, MF_STRING, menuCapture, L"Capture\tCtrl+Shift+X");
+    AppendMenuW(menu, MF_STRING, menuOpenFolder, L"Open captures folder");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, menuExit, L"Exit");
     SetMenuDefaultItem(menu, menuCapture, FALSE);
@@ -135,13 +140,31 @@ void App::showMenu(POINT anchor) {
 
     switch (command) {
     case menuCapture: SetTimer(window_, captureTimerId, menuFadeDelayMs, nullptr); break;
+    case menuOpenFolder: openCapturesFolder(); break;
     case menuExit: DestroyWindow(window_); break;
     }
 }
 
-void App::copyToClipboard(const core::Image& image) {
-    if (!win::copyImageToClipboard(window_, image))
+void App::deliver(const core::Image& image) {
+    const auto png = win::encodePng(image);
+    // The clipboard still gets the bitmap if PNG encoding failed.
+    if (!win::copyImageToClipboard(
+            window_, image, png ? std::span<const std::uint8_t>(*png) : std::span<const std::uint8_t>()))
         tray_->showWarning(L"Could not copy the capture", L"The clipboard is busy. Please try again.");
+
+    const auto folder = win::capturesFolder();
+    if (!png || !folder || !win::saveCapture(*folder, *png, win::localNow()))
+        tray_->showWarning(L"Could not save the capture",
+                           L"The PNG file could not be written to Pictures\\Kodak.");
+}
+
+void App::openCapturesFolder() {
+    const auto folder = win::capturesFolder();
+    if (!folder) {
+        tray_->showWarning(L"Could not open the captures folder", L"Pictures\\Kodak could not be created.");
+        return;
+    }
+    ShellExecuteW(nullptr, L"open", folder->c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 } // namespace kodak::app

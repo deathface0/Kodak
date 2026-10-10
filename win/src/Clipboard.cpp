@@ -19,20 +19,21 @@ bool openClipboard(HWND owner) {
 
 /// Frees the memory block unless ownership passed to the clipboard.
 struct GlobalBlock {
-    HGLOBAL handle;
+    HGLOBAL handle = nullptr;
+
+    GlobalBlock() = default;
     ~GlobalBlock() {
         if (handle) GlobalFree(handle);
     }
+    GlobalBlock(const GlobalBlock&) = delete;
+    GlobalBlock& operator=(const GlobalBlock&) = delete;
 };
 
-} // namespace
-
-bool copyImageToClipboard(HWND owner, const core::Image& image) {
-    if (image.empty()) return false;
-
+/// A BITMAPV5HEADER followed by the pixels, bottom-up: the layout every reader understands.
+bool fillDibV5(GlobalBlock& block, const core::Image& image) {
     const std::size_t rowBytes = static_cast<std::size_t>(image.width) * 4;
     const std::size_t pixelBytes = rowBytes * static_cast<std::size_t>(image.height);
-    GlobalBlock block{GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPV5HEADER) + pixelBytes)};
+    block.handle = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPV5HEADER) + pixelBytes);
     if (!block.handle) return false;
 
     auto* header = static_cast<BITMAPV5HEADER*>(GlobalLock(block.handle));
@@ -40,7 +41,7 @@ bool copyImageToClipboard(HWND owner, const core::Image& image) {
     *header = {};
     header->bV5Size = sizeof(BITMAPV5HEADER);
     header->bV5Width = image.width;
-    header->bV5Height = image.height; // bottom-up: the layout every reader understands
+    header->bV5Height = image.height;
     header->bV5Planes = 1;
     header->bV5BitCount = 32;
     header->bV5Compression = BI_BITFIELDS;
@@ -59,12 +60,36 @@ bool copyImageToClipboard(HWND owner, const core::Image& image) {
                     rowBytes);
     }
     GlobalUnlock(block.handle);
+    return true;
+}
+
+bool fillBytes(GlobalBlock& block, std::span<const std::uint8_t> bytes) {
+    block.handle = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
+    if (!block.handle) return false;
+    void* data = GlobalLock(block.handle);
+    if (!data) return false;
+    std::memcpy(data, bytes.data(), bytes.size());
+    GlobalUnlock(block.handle);
+    return true;
+}
+
+} // namespace
+
+bool copyImageToClipboard(HWND owner, const core::Image& image, std::span<const std::uint8_t> png) {
+    if (image.empty()) return false;
+
+    GlobalBlock dib;
+    if (!fillDibV5(dib, image)) return false;
+    GlobalBlock pngBlock;
+    const UINT pngFormat = png.empty() ? 0 : RegisterClipboardFormatW(L"PNG");
+    if (pngFormat && !fillBytes(pngBlock, png)) return false;
 
     if (!openClipboard(owner)) return false;
     bool copied = false;
-    if (EmptyClipboard() && SetClipboardData(CF_DIBV5, block.handle)) {
-        block.handle = nullptr; // the clipboard owns it now
+    if (EmptyClipboard() && SetClipboardData(CF_DIBV5, dib.handle)) {
+        dib.handle = nullptr; // the clipboard owns it now
         copied = true;
+        if (pngFormat && SetClipboardData(pngFormat, pngBlock.handle)) pngBlock.handle = nullptr;
     }
     CloseClipboard();
     return copied;

@@ -33,7 +33,9 @@ private:
 
     void capture();
     void showMenu(POINT anchor);
-    void copyToClipboard(const core::Image& image);
+    /// Copies the selection to the clipboard and saves it as a PNG in Pictures\Kodak.
+    void deliver(const core::Image& image);
+    void openCapturesFolder();
 
     HWND window_ = nullptr;
     std::unique_ptr<win::TrayIcon> tray_;
