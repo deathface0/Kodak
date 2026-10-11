@@ -41,18 +41,43 @@ std::vector<Finding> TextDetector::detect(const Image& image, const Rect& region
     const std::vector<OcrLine> lines = recognizer_.recognize(image, region, stop);
 
     std::vector<Finding> findings;
+    auto propose = [&](const Rect& words, FindingKind kind) {
+        const Rect area = intersect(inflate(words, marginFor(words.height)), region);
+        if (!words.empty() && !area.empty()) findings.push_back({area, kind});
+    };
+
     for (const OcrLine& line : lines) {
         if (stop.stop_requested()) return {};
         const JoinedLine joined = join(line);
+        std::vector<bool> matched(line.words.size(), false);
         for (const auto& rule : rules_) {
             for (const TextMatch& match : rule->find(joined.text)) {
                 // Every word the match touches, even partly: better too much than a visible piece.
                 Rect covered;
                 for (std::size_t c = match.begin; c < match.end && c < joined.wordOf.size(); ++c) {
-                    if (joined.wordOf[c]) covered = unite(covered, line.words[*joined.wordOf[c]].box);
+                    if (!joined.wordOf[c]) continue;
+                    covered = unite(covered, line.words[*joined.wordOf[c]].box);
+                    matched[*joined.wordOf[c]] = true;
                 }
-                const Rect area = intersect(inflate(covered, marginFor(covered.height)), region);
-                if (!covered.empty() && !area.empty()) findings.push_back({area, match.kind});
+                propose(covered, match.kind);
+            }
+        }
+
+        // The OCR sometimes splits one token in two ("juan.perez@gm" "ail.com"). Try each pair
+        // of close neighbours that nothing matched, joined without the space; a match has to
+        // cross the join, so a word next to correctly read data is never swallowed.
+        for (std::size_t w = 0; w + 1 < line.words.size(); ++w) {
+            const OcrWord& left = line.words[w];
+            const OcrWord& right = line.words[w + 1];
+            const int gap = right.box.x - (left.box.x + left.box.width);
+            if (matched[w] || matched[w + 1] || gap > std::max(left.box.height, right.box.height) / 2)
+                continue;
+            const std::u32string pair = left.text + right.text;
+            for (const auto& rule : rules_) {
+                for (const TextMatch& match : rule->find(pair)) {
+                    if (match.begin < left.text.size() && match.end > left.text.size())
+                        propose(unite(left.box, right.box), match.kind);
+                }
             }
         }
     }

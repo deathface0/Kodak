@@ -457,8 +457,9 @@ class ContextRule final : public TextRule {
 public:
     Matches find(std::u32string_view line) const override {
         // Folded (lower case, no accents), so "contrasena" also matches the accented spelling.
-        static constexpr std::array<std::u32string_view, 7> labels{
-            U"password", U"contrasena", U"pin", U"token", U"clave", U"api key", U"cvv"};
+        static constexpr std::array<std::u32string_view, 11> labels{
+            U"password", U"pass",  U"passwd",  U"pwd", U"contrasena", U"pin",
+            U"token",    U"clave", U"api key", U"cvv", U"secret"};
 
         const std::u32string folded = foldForSearch(line);
         std::size_t valueEnd = line.size();

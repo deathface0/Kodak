@@ -8,6 +8,7 @@ add_library(kodak_core STATIC
     src/TextDetector.cpp
     src/TextRules.cpp
     src/TextValidation.cpp
+    src/Tiling.cpp
 )
 add_library(kodak::core ALIAS kodak_core)
 

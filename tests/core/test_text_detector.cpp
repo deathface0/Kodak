@@ -131,3 +131,38 @@ TEST_CASE("a stop requested before detecting skips the OCR") {
     CHECK(detect(ocr, everything, source.get_token()).empty());
     CHECK(ocr.calls == 0);
 }
+
+TEST_CASE("a token the OCR split in two is joined again") {
+    // As Windows OCR read "juan.perez@gmail.com" in a real test: two words 3 px apart.
+    FakeRecognizer ocr;
+    OcrLine line;
+    line.words = {{U"Write", Rect{20, 27, 49, 17}},
+                  {U"to", Rect{73, 30, 19, 14}},
+                  {U"juan.perez@gm", Rect{118, 27, 137, 22}},
+                  {U"ail.com", Rect{258, 27, 59, 17}}};
+    ocr.lines = {line};
+
+    const auto findings = detect(ocr);
+    REQUIRE(findings.size() == 1);
+    CHECK(findings[0].kind == FindingKind::Email);
+    CHECK(findings[0].area == Rect{114, 23, 207, 30}); // both pieces, margin 4
+}
+
+TEST_CASE("words far apart are not joined") {
+    FakeRecognizer ocr;
+    OcrLine line;
+    line.words = {{U"juan.perez@gm", Rect{0, 100, 130, 20}}, {U"ail.com", Rect{200, 100, 70, 20}}};
+    ocr.lines = {line};
+    CHECK(detect(ocr).empty());
+}
+
+TEST_CASE("a word right next to a correctly read address is not swallowed") {
+    FakeRecognizer ocr;
+    OcrLine line;
+    line.words = {{U"Contact", Rect{0, 100, 70, 20}}, {U"juan.perez@gmail.com", Rect{73, 100, 200, 20}}};
+    ocr.lines = {line};
+
+    const auto findings = detect(ocr);
+    REQUIRE(findings.size() == 1);
+    CHECK(findings[0].area == Rect{69, 96, 208, 28}); // the address only
+}

@@ -134,10 +134,22 @@ TEST_CASE("values after a label are redacted to the end of the line") {
     CHECK(found(U"CVV:123", FindingKind::ContextValue) == Texts{U"123"});
 }
 
+TEST_CASE("short password labels count too") {
+    // As the Windows OCR read a real search box: the trailing 1 is the text cursor.
+    CHECK(found(U"Q pass: lacasaroja121", FindingKind::ContextValue) == Texts{U"lacasaroja121"});
+    CHECK(found(U"passwd=hunter2", FindingKind::ContextValue) == Texts{U"hunter2"});
+    CHECK(found(U"PWD: 1234abcd", FindingKind::ContextValue) == Texts{U"1234abcd"});
+    CHECK(found(U"Client secret: s3cr3t-value", FindingKind::ContextValue) == Texts{U"s3cr3t-value"});
+    // "password" is not also matched as "pass" followed by "word".
+    CHECK(found(U"password: abc", FindingKind::ContextValue) == Texts{U"abc"});
+}
+
 TEST_CASE("labels without a value or inside other words are ignored") {
     CHECK(found(U"pinned: yes", FindingKind::ContextValue).empty());
     CHECK(found(U"Forgot your password?", FindingKind::ContextValue).empty());
     CHECK(found(U"password:   ", FindingKind::ContextValue).empty());
+    CHECK(found(U"passport: valid", FindingKind::ContextValue).empty());
+    CHECK(found(U"Mountain pass is open", FindingKind::ContextValue).empty());
 }
 
 TEST_CASE("one line with every kind of data") {
