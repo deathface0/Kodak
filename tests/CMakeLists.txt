@@ -22,6 +22,7 @@ add_executable(kodak_core_tests
     core/test_image.cpp
     core/test_redaction.cpp
     core/test_selection.cpp
+    core/test_text_detector.cpp
     core/test_text_normalize.cpp
     core/test_text_rules.cpp
     core/test_text_validation.cpp

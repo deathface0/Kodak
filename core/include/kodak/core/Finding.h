@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace kodak::core {
 
@@ -26,5 +27,10 @@ constexpr std::optional<std::size_t> topmostAt(std::span<const Finding> findings
     }
     return std::nullopt;
 }
+
+/// Joins findings whose areas overlap into one covering both, until none
+/// overlap; the result keeps the kind of the larger of the two. Avoids two
+/// boxes over the same text when several rules match it.
+std::vector<Finding> mergeOverlapping(std::vector<Finding> findings);
 
 } // namespace kodak::core

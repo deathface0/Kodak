@@ -3,10 +3,12 @@
 #include <kodak/core/Geometry.h>
 
 using kodak::core::fromCorners;
+using kodak::core::inflate;
 using kodak::core::intersect;
 using kodak::core::offset;
 using kodak::core::Point;
 using kodak::core::Rect;
+using kodak::core::unite;
 
 TEST_CASE("intersect returns the overlap") {
     CHECK(intersect({0, 0, 10, 10}, {5, 5, 10, 10}) == Rect{5, 5, 5, 5});
@@ -48,4 +50,14 @@ TEST_CASE("contains includes the top-left edge and excludes the bottom-right one
 
 TEST_CASE("offset moves a rectangle and keeps its size") {
     CHECK(offset(Rect{10, 20, 3, 4}, -10, 5) == Rect{0, 25, 3, 4});
+}
+
+TEST_CASE("unite covers both rectangles and ignores empty ones") {
+    CHECK(unite(Rect{0, 0, 2, 2}, Rect{5, 5, 1, 1}) == Rect{0, 0, 6, 6});
+    CHECK(unite(Rect{}, Rect{3, 4, 5, 6}) == Rect{3, 4, 5, 6});
+    CHECK(unite(Rect{3, 4, 5, 6}, Rect{}) == Rect{3, 4, 5, 6});
+}
+
+TEST_CASE("inflate grows a rectangle on every side") {
+    CHECK(inflate(Rect{10, 10, 4, 4}, 2) == Rect{8, 8, 8, 8});
 }

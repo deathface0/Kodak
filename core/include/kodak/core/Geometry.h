@@ -44,6 +44,22 @@ constexpr Rect intersect(const Rect& a, const Rect& b) noexcept {
     return {left, top, right - left, bottom - top};
 }
 
+/// The smallest rectangle containing both; an empty one does not count.
+constexpr Rect unite(const Rect& a, const Rect& b) noexcept {
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    const int left = std::min(a.x, b.x);
+    const int top = std::min(a.y, b.y);
+    const int right = std::max(a.x + a.width, b.x + b.width);
+    const int bottom = std::max(a.y + a.height, b.y + b.height);
+    return {left, top, right - left, bottom - top};
+}
+
+/// `r` grown by `by` pixels on every side.
+constexpr Rect inflate(const Rect& r, int by) noexcept {
+    return {r.x - by, r.y - by, r.width + 2 * by, r.height + 2 * by};
+}
+
 /// The rectangle covering both pixels and everything between them, whichever
 /// corner each one is (a drag can go in any direction).
 constexpr Rect fromCorners(Point a, Point b) noexcept {

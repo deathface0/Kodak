@@ -1,9 +1,11 @@
 # Plain C++: no Windows headers here, so it builds and is tested on Linux too.
 add_library(kodak_core STATIC
     src/FileName.cpp
+    src/Finding.cpp
     src/Image.cpp
     src/Redaction.cpp
     src/TextNormalize.cpp
+    src/TextDetector.cpp
     src/TextRules.cpp
     src/TextValidation.cpp
 )
