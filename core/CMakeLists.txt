@@ -3,6 +3,9 @@ add_library(kodak_core STATIC
     src/FileName.cpp
     src/Image.cpp
     src/Redaction.cpp
+    src/TextNormalize.cpp
+    src/TextRules.cpp
+    src/TextValidation.cpp
 )
 add_library(kodak::core ALIAS kodak_core)
 
