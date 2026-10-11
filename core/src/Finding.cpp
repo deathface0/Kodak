@@ -1,5 +1,7 @@
 #include "kodak/core/Finding.h"
 
+#include <utility>
+
 namespace kodak::core {
 
 namespace {
@@ -22,7 +24,10 @@ std::vector<Finding> mergeOverlapping(std::vector<Finding> findings) {
         for (std::size_t i = 0; i < findings.size() && !merged; ++i) {
             for (std::size_t j = i + 1; j < findings.size(); ++j) {
                 if (intersect(findings[i].area, findings[j].area).empty()) continue;
-                if (areaOf(findings[j].area) > areaOf(findings[i].area)) findings[i].kind = findings[j].kind;
+                if (areaOf(findings[j].area) > areaOf(findings[i].area)) {
+                    findings[i].kind = findings[j].kind;
+                    findings[i].preview = std::move(findings[j].preview);
+                }
                 findings[i].area = unite(findings[i].area, findings[j].area);
                 findings[i].enabled = findings[i].enabled || findings[j].enabled;
                 findings.erase(findings.begin() + static_cast<std::ptrdiff_t>(j));

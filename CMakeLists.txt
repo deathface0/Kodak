@@ -18,7 +18,9 @@ if(MSVC)
     target_compile_options(kodak_build_options INTERFACE /W4 /permissive- /utf-8
         $<$<BOOL:${KODAK_WARNINGS_AS_ERRORS}>:/WX>)
 else()
-    target_compile_options(kodak_build_options INTERFACE -Wall -Wextra -Wpedantic
+    # Aggregates such as Finding are brace-initialised partially on purpose: the
+    # remaining members have default member initialisers.
+    target_compile_options(kodak_build_options INTERFACE -Wall -Wextra -Wpedantic -Wno-missing-field-initializers
         $<$<BOOL:${KODAK_WARNINGS_AS_ERRORS}>:-Werror>)
 endif()
 

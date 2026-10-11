@@ -11,8 +11,10 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 
+#include <cstddef>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -62,9 +64,25 @@ private:
     void stopDetection() noexcept;
     void onDetectionDone(WPARAM generation);
 
+    /// A row of the proposals panel, as last painted, and the proposal it shows.
+    struct PanelRow {
+        D2D1_RECT_F rect;
+        std::size_t proposal;
+    };
+
     void paint();
-    void paintHelp();
+    /// Prepares the text format for the monitor under the selection; 0 if text cannot be drawn.
+    float textScale();
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layoutText(const std::wstring& text) const;
+    /// The proposals in reading order (top to bottom, left to right).
+    std::vector<std::size_t> panelOrder() const;
+    /// The list of proposals beside the selection: kind and masked text, click to toggle.
+    void paintPanel(float scale);
+    void paintHelp(float scale);
     std::wstring helpLine() const;
+    std::optional<std::size_t> panelRowAt(core::Point p) const;
+    /// Highlights the proposal under the cursor, in the panel or on the image.
+    void updateHover(core::Point p);
     bool createDeviceResources();
     void releaseDeviceResources() noexcept;
     core::Point clampToImage(LPARAM lParam) const noexcept;
@@ -89,6 +107,8 @@ private:
     core::Rect selection_;                 // valid while reviewing
     std::vector<core::Finding> boxes_;     // drawn by hand, in capture coordinates
     std::vector<core::Finding> proposals_; // found by the OCR, in capture coordinates
+    std::vector<PanelRow> panelRows_;
+    std::optional<std::size_t> hovered_; // proposal under the cursor
 
     std::vector<std::u32string> userTerms_;
     std::set<core::FindingKind> disabledKinds_;

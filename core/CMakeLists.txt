@@ -14,6 +14,7 @@ add_library(kodak_core STATIC
     src/FileName.cpp
     src/Finding.cpp
     src/Image.cpp
+    src/Preview.cpp
     src/Redaction.cpp
     src/Settings.cpp
     src/Shortcut.cpp

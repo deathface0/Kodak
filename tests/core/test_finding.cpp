@@ -61,3 +61,12 @@ TEST_CASE("toggleAt outside every finding changes nothing") {
     CHECK_FALSE(toggleAt(findings, Point{20, 20}));
     CHECK(findings[0].enabled);
 }
+
+TEST_CASE("a merged finding keeps the preview of the larger one") {
+    const std::vector<Finding> findings{{Rect{0, 0, 10, 10}, FindingKind::Email, true, U"small"},
+                                        {Rect{5, 5, 20, 20}, FindingKind::Card, true, U"large"}};
+    const auto merged = mergeOverlapping(findings);
+    REQUIRE(merged.size() == 1);
+    CHECK(merged[0].kind == FindingKind::Card);
+    CHECK(merged[0].preview == U"large");
+}

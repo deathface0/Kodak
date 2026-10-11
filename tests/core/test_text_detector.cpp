@@ -166,3 +166,25 @@ TEST_CASE("a word right next to a correctly read address is not swallowed") {
     REQUIRE(findings.size() == 1);
     CHECK(findings[0].area == Rect{69, 96, 208, 28}); // the address only
 }
+
+TEST_CASE("findings carry the text they cover") {
+    FakeRecognizer ocr;
+    ocr.lines = {lineOf({U"Contact", U"juan@mail.com"}, 0, 100),
+                 lineOf({U"Card", U"4111", U"1111", U"1111", U"1111"}, 0, 300)};
+
+    const auto findings = detect(ocr);
+    REQUIRE(findings.size() == 2);
+    CHECK(findings[0].preview == U"juan@mail.com");
+    CHECK(findings[1].preview == U"4111 1111 1111 1111");
+}
+
+TEST_CASE("a token split by the OCR is previewed whole") {
+    FakeRecognizer ocr;
+    OcrLine line;
+    line.words = {{U"juan.perez@gm", Rect{118, 27, 137, 22}}, {U"ail.com", Rect{258, 27, 59, 17}}};
+    ocr.lines = {line};
+
+    const auto findings = detect(ocr);
+    REQUIRE(findings.size() == 1);
+    CHECK(findings[0].preview == U"juan.perez@gmail.com");
+}

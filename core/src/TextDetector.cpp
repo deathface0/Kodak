@@ -41,9 +41,11 @@ std::vector<Finding> TextDetector::detect(const Image& image, const Rect& region
     const std::vector<OcrLine> lines = recognizer_.recognize(image, region, stop);
 
     std::vector<Finding> findings;
-    auto propose = [&](const Rect& words, FindingKind kind) {
+    auto propose = [&](const Rect& words, const TextMatch& match, std::u32string_view text) {
         const Rect area = intersect(inflate(words, marginFor(words.height)), region);
-        if (!words.empty() && !area.empty()) findings.push_back({area, kind});
+        if (!words.empty() && !area.empty())
+            findings.push_back(
+                {area, match.kind, true, std::u32string(text.substr(match.begin, match.end - match.begin))});
     };
 
     for (const OcrLine& line : lines) {
@@ -59,7 +61,7 @@ std::vector<Finding> TextDetector::detect(const Image& image, const Rect& region
                     covered = unite(covered, line.words[*joined.wordOf[c]].box);
                     matched[*joined.wordOf[c]] = true;
                 }
-                propose(covered, match.kind);
+                propose(covered, match, joined.text);
             }
         }
 
@@ -76,7 +78,7 @@ std::vector<Finding> TextDetector::detect(const Image& image, const Rect& region
             for (const auto& rule : rules_) {
                 for (const TextMatch& match : rule->find(pair)) {
                     if (match.begin < left.text.size() && match.end > left.text.size())
-                        propose(unite(left.box, right.box), match.kind);
+                        propose(unite(left.box, right.box), match, pair);
                 }
             }
         }

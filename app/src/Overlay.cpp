@@ -1,9 +1,11 @@
 #include "Overlay.h"
 
+#include <kodak/core/Preview.h>
 #include <kodak/core/Redaction.h>
 #include <kodak/core/Selection.h>
 #include <kodak/core/TextDetector.h>
 #include <kodak/win/ComApartment.h>
+#include <kodak/win/TextConversion.h>
 #include <kodak/win/WinOcrRecognizer.h>
 
 #include <shellscalingapi.h>
@@ -28,6 +30,29 @@ const D2D1_COLOR_F boxOutlineColour = D2D1::ColorF(0.6f, 0.6f, 0.6f);
 const D2D1_COLOR_F proposalColour = D2D1::ColorF(1.0f, 0.75f, 0.0f); // amber
 const D2D1_COLOR_F helpBackColour = D2D1::ColorF(0.1f, 0.1f, 0.1f, 0.85f);
 const D2D1_COLOR_F helpTextColour = D2D1::ColorF(D2D1::ColorF::White);
+const D2D1_COLOR_F previewTextColour = D2D1::ColorF(0.75f, 0.75f, 0.75f);
+const D2D1_COLOR_F rowHoverColour = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+
+// More rows than this make the panel taller than many selections; the rest are
+// summarised and can still be toggled on the image.
+constexpr std::size_t maxPanelRows = 12;
+
+std::wstring kindLabel(core::FindingKind kind) {
+    switch (kind) {
+    case core::FindingKind::Email: return L"E-mail";
+    case core::FindingKind::Card: return L"Card";
+    case core::FindingKind::Iban: return L"IBAN";
+    case core::FindingKind::DniNie: return L"DNI/NIE";
+    case core::FindingKind::Phone: return L"Phone";
+    case core::FindingKind::Ip: return L"IP address";
+    case core::FindingKind::Secret: return L"Secret";
+    case core::FindingKind::ContextValue: return L"Value";
+    case core::FindingKind::UserTerm: return L"Your term";
+    case core::FindingKind::Face: return L"Face";
+    case core::FindingKind::Manual: break;
+    }
+    return L"Box";
+}
 
 D2D1_RECT_F toRectF(const core::Rect& r) noexcept {
     return D2D1::RectF(static_cast<float>(r.x), static_cast<float>(r.y), static_cast<float>(r.x + r.width),
@@ -119,8 +144,22 @@ LRESULT Overlay::handle(UINT message, WPARAM wParam, LPARAM lParam) {
         if (drag_ != Drag::None) {
             current_ = clampToImage(lParam);
             redraw();
+        } else if (mode_ == Mode::Reviewing) {
+            updateHover(clampToImage(lParam));
         }
         return 0;
+
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT) { // a hand over the panel's rows, the class's cross elsewhere
+            POINT cursor;
+            GetCursorPos(&cursor);
+            ScreenToClient(window_, &cursor);
+            if (panelRowAt({cursor.x, cursor.y})) {
+                SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                return TRUE;
+            }
+        }
+        break;
 
     case WM_CAPTURECHANGED:
         if (drag_ != Drag::None) { // the drag was interrupted
@@ -154,6 +193,11 @@ LRESULT Overlay::handle(UINT message, WPARAM wParam, LPARAM lParam) {
 }
 
 void Overlay::onButtonDown(core::Point p) {
+    if (const auto row = panelRowAt(p)) { // a row of the panel toggles its proposal
+        proposals_[*row].enabled = !proposals_[*row].enabled;
+        redraw();
+        return;
+    }
     // Inside the selection under review: a redaction box or a click on a
     // proposal. Anywhere else: a new selection, which replaces the current one
     // only once it is usable.
@@ -189,6 +233,11 @@ void Overlay::onButtonUp(core::Point p) {
 
 void Overlay::onDoubleClick(core::Point p) {
     if (mode_ != Mode::Reviewing) return;
+    if (const auto row = panelRowAt(p)) { // two quick clicks on a row: two toggles, no confirm
+        proposals_[*row].enabled = !proposals_[*row].enabled;
+        redraw();
+        return;
+    }
     // The first click of the double-click already toggled a proposal under the
     // cursor; undo that so confirming does not change it.
     if (selection_.contains(p)) core::toggleAt(proposals_, p);
@@ -215,6 +264,8 @@ void Overlay::removeLastBox() {
 void Overlay::startDetection() {
     stopDetection();
     proposals_.clear();
+    hovered_.reset();
+    panelRows_.clear();
     detection_ = Detection::Running;
     const unsigned generation = ++generation_;
 
@@ -266,6 +317,8 @@ void Overlay::onDetectionDone(WPARAM generation) {
     {
         const std::lock_guard lock(resultMutex_);
         proposals_ = std::move(result_);
+        hovered_.reset();
+        panelRows_.clear();
         result_.clear();
         available = resultAvailable_;
     }
@@ -301,7 +354,8 @@ void Overlay::paint() {
     if (mode_ == Mode::Reviewing && !selecting) {
         // Proposals: black as the output will be, with an amber outline; turned
         // off, only a dashed outline, so what stays visible is still marked.
-        for (const core::Finding& proposal : proposals_) {
+        for (std::size_t i = 0; i < proposals_.size(); ++i) {
+            const core::Finding& proposal = proposals_[i];
             const D2D1_RECT_F rect = toRectF(proposal.area);
             if (proposal.enabled) {
                 brush_->SetColor(boxColour);
@@ -311,6 +365,12 @@ void Overlay::paint() {
             } else {
                 brush_->SetColor(proposalColour);
                 target_->DrawRectangle(insideOutline(rect, 2.0f), brush_.Get(), 2.0f, dashed_.Get());
+            }
+            if (hovered_ == i) { // the box of the row under the cursor, or the box itself
+                brush_->SetColor(borderColour);
+                target_->DrawRectangle(
+                    D2D1::RectF(rect.left - 2, rect.top - 2, rect.right + 2, rect.bottom + 2), brush_.Get(),
+                    2.0f);
             }
         }
 
@@ -325,7 +385,12 @@ void Overlay::paint() {
             brush_->SetColor(boxOutlineColour);
             target_->DrawRectangle(insideOutline(rect), brush_.Get(), 1.0f);
         }
-        paintHelp();
+
+        panelRows_.clear();
+        if (const float scale = textScale(); scale > 0) {
+            if (detection_ == Detection::Done && drag_ != Drag::Box) paintPanel(scale);
+            paintHelp(scale);
+        }
     }
 
     if (target_->EndDraw() == D2DERR_RECREATE_TARGET) {
@@ -354,8 +419,8 @@ std::wstring Overlay::helpLine() const {
     return actions;
 }
 
-void Overlay::paintHelp() {
-    if (!writeFactory_) return;
+float Overlay::textScale() {
+    if (!writeFactory_) return 0.0f;
 
     // Direct2D runs at 96 DPI, so size the text for the monitor under the selection.
     RECT onScreen{capture_.origin.x + selection_.x, capture_.origin.y + selection_.y,
@@ -373,10 +438,148 @@ void Overlay::paintHelp() {
         if (FAILED(writeFactory_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                                    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                                                    13.0f * scale, L"en-us", &helpFormat_)))
-            return;
+            return 0.0f;
         helpDpi_ = dpiX;
     }
+    return scale;
+}
 
+Microsoft::WRL::ComPtr<IDWriteTextLayout> Overlay::layoutText(const std::wstring& text) const {
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(writeFactory_->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
+                                               helpFormat_.Get(), 10000.0f, 1000.0f, &layout)))
+        return nullptr;
+    return layout;
+}
+
+std::vector<std::size_t> Overlay::panelOrder() const {
+    // Reading order: top to bottom, then left to right.
+    std::vector<std::size_t> order(proposals_.size());
+    for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        const core::Rect& ra = proposals_[a].area;
+        const core::Rect& rb = proposals_[b].area;
+        return ra.y != rb.y ? ra.y < rb.y : ra.x < rb.x;
+    });
+    return order;
+}
+
+void Overlay::paintPanel(float scale) {
+    panelRows_.clear();
+    if (proposals_.empty()) return;
+
+    const std::vector<std::size_t> order = panelOrder();
+    const std::size_t shown = std::min(order.size(), maxPanelRows);
+
+    // Two columns: the kind, then the masked text.
+    std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> kinds;
+    std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> previews;
+    float kindWidth = 0.0f;
+    float previewWidth = 0.0f;
+    float lineHeight = 0.0f;
+    for (std::size_t row = 0; row < shown; ++row) {
+        const core::Finding& proposal = proposals_[order[row]];
+        kinds.push_back(layoutText(kindLabel(proposal.kind)));
+        previews.push_back(layoutText(win::toUtf16(core::maskPreview(proposal.kind, proposal.preview))));
+        if (!kinds.back() || !previews.back()) return;
+        DWRITE_TEXT_METRICS kindMetrics{};
+        DWRITE_TEXT_METRICS previewMetrics{};
+        kinds.back()->GetMetrics(&kindMetrics);
+        previews.back()->GetMetrics(&previewMetrics);
+        kindWidth = std::max(kindWidth, kindMetrics.width);
+        previewWidth = std::max(previewWidth, previewMetrics.width);
+        lineHeight = std::max({lineHeight, kindMetrics.height, previewMetrics.height});
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> more;
+    if (order.size() > shown) {
+        more = layoutText(L"and " + std::to_wstring(order.size() - shown) + L" more");
+        if (!more) return;
+    }
+
+    const float pad = 8.0f * scale;
+    const float square = 10.0f * scale;
+    const float columnGap = 12.0f * scale;
+    const float rowHeight = lineHeight + 6.0f * scale;
+    const float width = pad + square + columnGap + kindWidth + columnGap + previewWidth + pad;
+    const float height = 2 * pad + rowHeight * static_cast<float>(shown + (more ? 1 : 0));
+    const auto imageWidth = static_cast<float>(capture_.image.width);
+    const auto imageHeight = static_cast<float>(capture_.image.height);
+    const float gap = 8.0f * scale;
+
+    // Right of the selection; left of it if there is no room; inside its top-right corner otherwise.
+    const auto selectionLeft = static_cast<float>(selection_.x);
+    const auto selectionRight = static_cast<float>(selection_.x + selection_.width);
+    float left = selectionRight + gap;
+    if (left + width > imageWidth) left = selectionLeft - gap - width;
+    if (left < 0) left = std::max(0.0f, selectionRight - gap - width);
+    const float top =
+        std::clamp(static_cast<float>(selection_.y), 0.0f, std::max(0.0f, imageHeight - height));
+
+    brush_->SetColor(helpBackColour);
+    target_->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(left, top, left + width, top + height), 4 * scale, 4 * scale),
+        brush_.Get());
+
+    for (std::size_t row = 0; row < shown; ++row) {
+        const std::size_t index = order[row];
+        const core::Finding& proposal = proposals_[index];
+        const float y = top + pad + rowHeight * static_cast<float>(row);
+        const D2D1_RECT_F rowRect = D2D1::RectF(left, y, left + width, y + rowHeight);
+        panelRows_.push_back({rowRect, index});
+
+        if (hovered_ == index) {
+            brush_->SetColor(rowHoverColour);
+            target_->FillRectangle(rowRect, brush_.Get());
+        }
+
+        // On: a filled amber square; off: only its outline, like the dashed box.
+        const float squareTop = y + (rowHeight - square) / 2;
+        const D2D1_RECT_F mark = D2D1::RectF(left + pad, squareTop, left + pad + square, squareTop + square);
+        brush_->SetColor(proposalColour);
+        if (proposal.enabled) {
+            target_->FillRectangle(mark, brush_.Get());
+        } else {
+            target_->DrawRectangle(insideOutline(mark, 1.5f), brush_.Get(), 1.5f);
+        }
+
+        const float textTop = y + (rowHeight - lineHeight) / 2;
+        const float kindLeft = left + pad + square + columnGap;
+        brush_->SetColor(helpTextColour);
+        target_->DrawTextLayout(D2D1::Point2F(kindLeft, textTop), kinds[row].Get(), brush_.Get());
+        brush_->SetColor(previewTextColour);
+        target_->DrawTextLayout(D2D1::Point2F(kindLeft + kindWidth + columnGap, textTop), previews[row].Get(),
+                                brush_.Get());
+    }
+    if (more) {
+        brush_->SetColor(previewTextColour);
+        target_->DrawTextLayout(
+            D2D1::Point2F(left + pad + square + columnGap, top + pad + rowHeight * static_cast<float>(shown)),
+            more.Get(), brush_.Get());
+    }
+}
+
+std::optional<std::size_t> Overlay::panelRowAt(core::Point p) const {
+    const auto x = static_cast<float>(p.x);
+    const auto y = static_cast<float>(p.y);
+    for (const PanelRow& row : panelRows_) {
+        const bool inside =
+            x >= row.rect.left && x < row.rect.right && y >= row.rect.top && y < row.rect.bottom;
+        if (inside && row.proposal < proposals_.size()) return row.proposal;
+    }
+    return std::nullopt;
+}
+
+void Overlay::updateHover(core::Point p) {
+    std::optional<std::size_t> hovered = panelRowAt(p);
+    if (!hovered && mode_ == Mode::Reviewing && detection_ == Detection::Done)
+        hovered = core::topmostAt(proposals_, p);
+    if (hovered != hovered_) {
+        hovered_ = hovered;
+        redraw();
+    }
+}
+
+void Overlay::paintHelp(float scale) {
     const std::wstring text = helpLine();
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
     if (FAILED(writeFactory_->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
@@ -437,6 +640,8 @@ void Overlay::releaseDeviceResources() noexcept {
 
 core::Point Overlay::clampToImage(LPARAM lParam) const noexcept {
     // Signed coordinates: with mouse capture the cursor can leave the window.
+    // Mouse messages can still arrive once the capture is gone: no image, no range.
+    if (capture_.image.empty()) return {};
     return {std::clamp(GET_X_LPARAM(lParam), 0, capture_.image.width - 1),
             std::clamp(GET_Y_LPARAM(lParam), 0, capture_.image.height - 1)};
 }
@@ -474,6 +679,8 @@ void Overlay::close() noexcept {
     selection_ = {};
     boxes_.clear();
     proposals_.clear();
+    hovered_.reset();
+    panelRows_.clear();
     if (window_ && IsWindowVisible(window_)) ShowWindow(window_, SW_HIDE);
     releaseDeviceResources();
     if (!capture_.image.bgra.empty())

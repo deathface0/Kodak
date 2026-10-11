@@ -20,6 +20,7 @@ add_executable(kodak_core_tests
     core/test_finding.cpp
     core/test_geometry.cpp
     core/test_image.cpp
+    core/test_preview.cpp
     core/test_redaction.cpp
     core/test_selection.cpp
     core/test_settings.cpp

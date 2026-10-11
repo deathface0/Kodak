@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace kodak::core {
@@ -17,7 +18,8 @@ enum class FindingKind { Manual, Email, Card, Iban, DniNie, Phone, Ip, Secret, U
 struct Finding {
     Rect area;
     FindingKind kind = FindingKind::Manual;
-    bool enabled = true; // the user can turn a proposal off before confirming
+    bool enabled = true;    // the user can turn a proposal off before confirming
+    std::u32string preview; // the text found there; empty for manual boxes
 };
 
 /// The index of the last finding whose area contains `p` (the one drawn on top), if any.
@@ -32,7 +34,7 @@ constexpr std::optional<std::size_t> topmostAt(std::span<const Finding> findings
 bool toggleAt(std::vector<Finding>& findings, Point p) noexcept;
 
 /// Joins findings whose areas overlap into one covering both, until none
-/// overlap; the result keeps the kind of the larger of the two. Avoids two
+/// overlap; the result keeps the kind and preview of the larger of the two. Avoids two
 /// boxes over the same text when several rules match it.
 std::vector<Finding> mergeOverlapping(std::vector<Finding> findings);
 
