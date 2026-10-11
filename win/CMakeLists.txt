@@ -6,6 +6,8 @@ add_library(kodak_win STATIC
     src/GdiScreenSource.cpp
     src/GlobalHotkey.cpp
     src/PngEncoder.cpp
+    src/SettingsFile.cpp
+    src/ShortcutKeys.cpp
     src/SingleInstance.cpp
     src/TextConversion.cpp
     src/TrayIcon.cpp

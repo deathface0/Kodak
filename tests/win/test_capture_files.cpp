@@ -1,40 +1,17 @@
 #include <doctest/doctest.h>
 
+#include "TestFiles.h"
+
 #include <kodak/win/CaptureFiles.h>
 
-#include <windows.h>
-
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <string>
 #include <vector>
 
 using kodak::core::DateTime;
+using kodak::test::readBytes;
+using kodak::test::TempFolder;
 using kodak::win::saveCapture;
 using kodak::win::writeNewFile;
-
-namespace {
-
-/// A fresh, empty folder under %TEMP%, removed with everything in it.
-struct TempFolder {
-    std::filesystem::path path =
-        std::filesystem::temp_directory_path() /
-        ("kodak_tests_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(GetTickCount64()));
-    TempFolder() { std::filesystem::create_directories(path); }
-    ~TempFolder() {
-        std::error_code error;
-        std::filesystem::remove_all(path, error);
-    }
-};
-
-std::vector<std::uint8_t> readFile(const std::filesystem::path& file) {
-    std::ifstream in(file, std::ios::binary);
-    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-}
-
-} // namespace
 
 TEST_CASE("writeNewFile writes a new file") {
     const TempFolder folder;
@@ -42,7 +19,7 @@ TEST_CASE("writeNewFile writes a new file") {
     const auto file = folder.path / "new.png";
 
     CHECK(writeNewFile(file, bytes));
-    CHECK(readFile(file) == bytes);
+    CHECK(readBytes(file) == bytes);
 }
 
 TEST_CASE("writeNewFile never touches an existing file") {
@@ -52,7 +29,7 @@ TEST_CASE("writeNewFile never touches an existing file") {
     REQUIRE(writeNewFile(file, original));
 
     CHECK_FALSE(writeNewFile(file, std::vector<std::uint8_t>{1, 2}));
-    CHECK(readFile(file) == original);
+    CHECK(readBytes(file) == original);
 }
 
 TEST_CASE("saveCapture adds a suffix when the name is taken") {
@@ -66,5 +43,5 @@ TEST_CASE("saveCapture adds a suffix when the name is taken") {
     REQUIRE(second);
     CHECK(first->filename() == "Kodak_20261011_093005.png");
     CHECK(second->filename() == "Kodak_20261011_093005_2.png");
-    CHECK(readFile(*second) == png);
+    CHECK(readBytes(*second) == png);
 }

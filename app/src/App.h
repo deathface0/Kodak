@@ -2,6 +2,7 @@
 
 #include "Overlay.h"
 
+#include <kodak/core/Settings.h>
 #include <kodak/win/GdiScreenSource.h>
 #include <kodak/win/GlobalHotkey.h>
 #include <kodak/win/TrayIcon.h>
@@ -9,6 +10,7 @@
 #include <windows.h>
 
 #include <memory>
+#include <string>
 
 namespace kodak::app {
 
@@ -36,8 +38,11 @@ private:
     /// Copies the selection to the clipboard and saves it as a PNG in Pictures\Kodak.
     void deliver(const core::Image& image);
     void openCapturesFolder();
+    /// The capture shortcut as shown to the user ("Ctrl+Shift+X").
+    std::wstring hotkeyName() const;
 
     HWND window_ = nullptr;
+    core::Settings settings_;
     std::unique_ptr<win::TrayIcon> tray_;
     std::unique_ptr<win::GlobalHotkey> hotkey_;
     win::GdiScreenSource screen_;

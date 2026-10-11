@@ -481,18 +481,22 @@ public:
 
 } // namespace
 
-std::vector<std::unique_ptr<TextRule>> defaultRules(std::vector<std::u32string> userTerms) {
+std::vector<std::unique_ptr<TextRule>> defaultRules(std::vector<std::u32string> userTerms,
+                                                    const std::set<FindingKind>& disabled) {
     std::vector<std::unique_ptr<TextRule>> rules;
-    rules.push_back(std::make_unique<EmailRule>());
-    rules.push_back(std::make_unique<CardRule>());
-    rules.push_back(std::make_unique<IbanRule>());
-    rules.push_back(std::make_unique<DniNieRule>());
-    rules.push_back(std::make_unique<PhoneRule>());
-    rules.push_back(std::make_unique<Ipv4Rule>());
-    rules.push_back(std::make_unique<SecretFormatRule>());
-    rules.push_back(std::make_unique<HighEntropyRule>());
-    if (!userTerms.empty()) rules.push_back(std::make_unique<UserTermRule>(std::move(userTerms)));
-    rules.push_back(std::make_unique<ContextRule>());
+    auto add = [&](FindingKind kind, std::unique_ptr<TextRule> rule) {
+        if (!disabled.contains(kind)) rules.push_back(std::move(rule));
+    };
+    add(FindingKind::Email, std::make_unique<EmailRule>());
+    add(FindingKind::Card, std::make_unique<CardRule>());
+    add(FindingKind::Iban, std::make_unique<IbanRule>());
+    add(FindingKind::DniNie, std::make_unique<DniNieRule>());
+    add(FindingKind::Phone, std::make_unique<PhoneRule>());
+    add(FindingKind::Ip, std::make_unique<Ipv4Rule>());
+    add(FindingKind::Secret, std::make_unique<SecretFormatRule>());
+    add(FindingKind::Secret, std::make_unique<HighEntropyRule>());
+    if (!userTerms.empty()) add(FindingKind::UserTerm, std::make_unique<UserTermRule>(std::move(userTerms)));
+    add(FindingKind::ContextValue, std::make_unique<ContextRule>());
     return rules;
 }
 

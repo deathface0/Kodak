@@ -3,13 +3,18 @@
 #include <kodak/win/CaptureFiles.h>
 #include <kodak/win/Clipboard.h>
 #include <kodak/win/PngEncoder.h>
+#include <kodak/win/SettingsFile.h>
+#include <kodak/win/ShortcutKeys.h>
 
 #include <shellapi.h>
 #include <windowsx.h>
 
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace kodak::app {
 
@@ -23,6 +28,9 @@ constexpr UINT_PTR captureTimerId = 1;
 constexpr UINT menuFadeDelayMs = 250;
 
 enum MenuCommand : UINT { menuCapture = 1, menuOpenFolder, menuExit };
+
+/// Our own ASCII messages and shortcut names, for the Windows API.
+std::wstring widen(std::string_view ascii) { return {ascii.begin(), ascii.end()}; }
 
 } // namespace
 
@@ -41,10 +49,28 @@ App::App(HINSTANCE instance) : overlay_(instance, [this](const core::Image& imag
 
     tray_ =
         std::make_unique<win::TrayIcon>(window_, trayMessage, LoadIconW(nullptr, IDI_APPLICATION), L"Kodak");
-    hotkey_ = std::make_unique<win::GlobalHotkey>(window_, hotkeyId, MOD_CONTROL | MOD_SHIFT, 'X');
-    if (!hotkey_->registered()) {
-        tray_->showWarning(L"Ctrl+Shift+X is taken",
+
+    std::vector<std::string> warnings;
+    if (const auto path = win::settingsPath()) {
+        win::LoadedSettings loaded = win::loadSettings(*path);
+        settings_ = std::move(loaded.settings);
+        warnings = std::move(loaded.warnings);
+    } else {
+        warnings.emplace_back("could not find the AppData folder; using the defaults");
+    }
+    overlay_.configureDetection(settings_.userTerms, settings_.disabled);
+
+    if (const auto code = win::toHotkey(settings_.hotkey))
+        hotkey_ = std::make_unique<win::GlobalHotkey>(window_, hotkeyId, code->modifiers, code->virtualKey);
+
+    // One notification at a time: a lost hotkey matters most.
+    if (!hotkey_ || !hotkey_->registered()) {
+        tray_->showWarning((hotkeyName() + L" is taken").c_str(),
                            L"Another application uses that shortcut. Capture from the Kodak tray icon menu.");
+    } else if (!warnings.empty()) {
+        std::string text = warnings.front();
+        if (warnings.size() > 1) text += " (and " + std::to_string(warnings.size() - 1) + " more)";
+        tray_->showWarning(L"Check settings.json", widen(text).c_str());
     }
 }
 
@@ -125,7 +151,7 @@ void App::capture() {
 void App::showMenu(POINT anchor) {
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
-    AppendMenuW(menu, MF_STRING, menuCapture, L"Capture\tCtrl+Shift+X");
+    AppendMenuW(menu, MF_STRING, menuCapture, (L"Capture\t" + hotkeyName()).c_str());
     AppendMenuW(menu, MF_STRING, menuOpenFolder, L"Open captures folder");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, menuExit, L"Exit");
@@ -152,11 +178,14 @@ void App::deliver(const core::Image& image) {
             window_, image, png ? std::span<const std::uint8_t>(*png) : std::span<const std::uint8_t>()))
         tray_->showWarning(L"Could not copy the capture", L"The clipboard is busy. Please try again.");
 
+    if (!settings_.saveToFile) return;
     const auto folder = win::capturesFolder();
     if (!png || !folder || !win::saveCapture(*folder, *png, win::localNow()))
         tray_->showWarning(L"Could not save the capture",
                            L"The PNG file could not be written to Pictures\\Kodak.");
 }
+
+std::wstring App::hotkeyName() const { return widen(core::formatShortcut(settings_.hotkey)); }
 
 void App::openCapturesFolder() {
     const auto folder = win::capturesFolder();

@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,6 +34,9 @@ public:
 
     Overlay(const Overlay&) = delete;
     Overlay& operator=(const Overlay&) = delete;
+
+    /// What the detection looks for: the user's own terms, and the kinds turned off.
+    void configureDetection(std::vector<std::u32string> userTerms, std::set<core::FindingKind> disabled);
 
     /// Shows `capture` over the whole virtual desktop and waits for a selection.
     void show(win::ScreenCapture capture);
@@ -86,6 +90,8 @@ private:
     std::vector<core::Finding> boxes_;     // drawn by hand, in capture coordinates
     std::vector<core::Finding> proposals_; // found by the OCR, in capture coordinates
 
+    std::vector<std::u32string> userTerms_;
+    std::set<core::FindingKind> disabledKinds_;
     Detection detection_ = Detection::Idle;
     bool confirmPending_ = false;
     unsigned generation_ = 0; // tells the current analysis from stopped ones

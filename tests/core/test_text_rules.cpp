@@ -162,3 +162,17 @@ TEST_CASE("one line with every kind of data") {
     CHECK(found(line, FindingKind::Phone) == Texts{U"612345678"});
     CHECK(found(line, FindingKind::Ip) == Texts{U"10.0.0.1"});
 }
+
+TEST_CASE("disabled kinds have no rules") {
+    using kodak::core::defaultRules;
+    auto count = [](const std::set<FindingKind>& disabled, Texts terms = {}) {
+        int matches = 0;
+        for (const auto& rule : defaultRules(std::move(terms), disabled))
+            matches += static_cast<int>(rule->find(U"juan@mail.com Zq8vR2mN5tX1pL9wK3sB7dF4 Ana").size());
+        return matches;
+    };
+    CHECK(count({}, {U"Ana"}) == 3);
+    CHECK(count({FindingKind::Email}, {U"Ana"}) == 2);
+    CHECK(count({FindingKind::Secret}, {U"Ana"}) == 2);   // the entropy rule goes too
+    CHECK(count({FindingKind::UserTerm}, {U"Ana"}) == 2); // terms configured but turned off
+}

@@ -88,6 +88,12 @@ void Overlay::show(win::ScreenCapture capture) {
 
 bool Overlay::visible() const noexcept { return window_ && IsWindowVisible(window_); }
 
+void Overlay::configureDetection(std::vector<std::u32string> userTerms,
+                                 std::set<core::FindingKind> disabled) {
+    userTerms_ = std::move(userTerms);
+    disabledKinds_ = std::move(disabled);
+}
+
 LRESULT CALLBACK Overlay::windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == WM_NCCREATE) {
         auto* self = static_cast<Overlay*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
@@ -214,7 +220,8 @@ void Overlay::startDetection() {
 
     // The worker gets its own copy of the selected pixels and wipes it when done.
     worker_ = std::jthread([this, generation, part = core::crop(capture_.image, selection_),
-                            origin = core::Point{selection_.x, selection_.y}](std::stop_token stop) mutable {
+                            origin = core::Point{selection_.x, selection_.y}, terms = userTerms_,
+                            disabled = disabledKinds_](std::stop_token stop) mutable {
         std::vector<core::Finding> found;
         bool available = false;
         {
@@ -223,7 +230,7 @@ void Overlay::startDetection() {
                 win::WinOcrRecognizer ocr;
                 available = ocr.available();
                 if (available) {
-                    core::TextDetector detector(ocr, core::defaultRules());
+                    core::TextDetector detector(ocr, core::defaultRules(std::move(terms), disabled));
                     found = detector.detect(part, part.bounds(), stop);
                 }
             }

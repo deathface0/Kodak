@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,7 +29,9 @@ public:
 
 /// Every rule of the plan (e-mail, card, IBAN, DNI/NIE, phone, IPv4, known
 /// secret formats, high-entropy tokens, labelled values) plus one for
-/// `userTerms` when there are any.
-std::vector<std::unique_ptr<TextRule>> defaultRules(std::vector<std::u32string> userTerms = {});
+/// `userTerms` when there are any, leaving out the kinds in `disabled`
+/// (FindingKind::Secret covers both the known formats and the entropy rule).
+std::vector<std::unique_ptr<TextRule>> defaultRules(std::vector<std::u32string> userTerms = {},
+                                                    const std::set<FindingKind>& disabled = {});
 
 } // namespace kodak::core

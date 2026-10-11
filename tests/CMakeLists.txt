@@ -22,11 +22,14 @@ add_executable(kodak_core_tests
     core/test_image.cpp
     core/test_redaction.cpp
     core/test_selection.cpp
+    core/test_settings.cpp
+    core/test_shortcut.cpp
     core/test_text_detector.cpp
     core/test_text_normalize.cpp
     core/test_text_rules.cpp
     core/test_text_validation.cpp
     core/test_tiling.cpp
+    core/test_utf8.cpp
 )
 target_link_libraries(kodak_core_tests PRIVATE kodak::core kodak_doctest kodak_build_options)
 
@@ -43,6 +46,7 @@ if(WIN32)
         win/test_clipboard.cpp
         win/test_ocr.cpp
         win/test_png.cpp
+        win/test_settings_file.cpp
         win/test_text_conversion.cpp
         ${PROJECT_SOURCE_DIR}/app/res/kodak.manifest
     )
