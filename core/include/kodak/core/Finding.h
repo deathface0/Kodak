@@ -28,6 +28,9 @@ constexpr std::optional<std::size_t> topmostAt(std::span<const Finding> findings
     return std::nullopt;
 }
 
+/// Turns the topmost finding under `p` on or off; false if there is none there.
+bool toggleAt(std::vector<Finding>& findings, Point p) noexcept;
+
 /// Joins findings whose areas overlap into one covering both, until none
 /// overlap; the result keeps the kind of the larger of the two. Avoids two
 /// boxes over the same text when several rules match it.

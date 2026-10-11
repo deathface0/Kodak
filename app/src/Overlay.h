@@ -12,13 +12,17 @@
 #include <wrl/client.h>
 
 #include <functional>
+#include <mutex>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace kodak::app {
 
 /// The full-screen window over the frozen capture. The user drags a selection,
-/// then reviews it: draws solid boxes over what must not be shared and
-/// confirms with Enter or a double-click. Esc or switching away cancels.
+/// then reviews it: sensitive text found by the OCR is proposed for redaction
+/// (a click turns a proposal off or on), solid boxes can be drawn by hand, and
+/// Enter or a double-click confirms. Esc or switching away cancels.
 class Overlay {
 public:
     /// Receives the selected pixels, already redacted, once the user confirms.
@@ -37,25 +41,37 @@ public:
 private:
     enum class Mode { Selecting, Reviewing };
     enum class Drag { None, Selection, Box };
+    enum class Detection { Idle, Running, Done, Unavailable };
 
     static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handle(UINT message, WPARAM wParam, LPARAM lParam);
 
     void onButtonDown(core::Point p);
     void onButtonUp(core::Point p);
+    void onDoubleClick(core::Point p);
     void onRightClick(core::Point p);
     void removeLastBox();
 
+    /// Looks for sensitive text in the selection on a worker thread.
+    void startDetection();
+    /// Stops the worker and waits for it, so it no longer touches anything.
+    void stopDetection() noexcept;
+    void onDetectionDone(WPARAM generation);
+
     void paint();
     void paintHelp();
+    std::wstring helpLine() const;
     bool createDeviceResources();
     void releaseDeviceResources() noexcept;
     core::Point clampToImage(LPARAM lParam) const noexcept;
     void redraw() noexcept;
 
-    /// Crops the selection, paints the boxes over it and hands it to onSelect_.
+    /// Confirms now, or as soon as the analysis finishes.
+    void requestConfirm();
+    /// Crops the selection, paints the boxes and enabled proposals over it and
+    /// hands it to onSelect_.
     void confirm();
-    /// Hides the window and wipes the capture from memory.
+    /// Hides the window, stops the analysis and wipes the capture from memory.
     void close() noexcept;
 
     HWND window_ = nullptr;
@@ -66,10 +82,20 @@ private:
     Drag drag_ = Drag::None;
     core::Point anchor_; // where the current drag started
     core::Point current_;
-    core::Rect selection_;             // valid while reviewing
-    std::vector<core::Finding> boxes_; // in capture coordinates, inside selection_
+    core::Rect selection_;                 // valid while reviewing
+    std::vector<core::Finding> boxes_;     // drawn by hand, in capture coordinates
+    std::vector<core::Finding> proposals_; // found by the OCR, in capture coordinates
+
+    Detection detection_ = Detection::Idle;
+    bool confirmPending_ = false;
+    unsigned generation_ = 0; // tells the current analysis from stopped ones
+    std::jthread worker_;
+    std::mutex resultMutex_;
+    std::vector<core::Finding> result_; // written by the worker
+    bool resultAvailable_ = true;       // false when no OCR language is installed
 
     Microsoft::WRL::ComPtr<ID2D1Factory> factory_;
+    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> dashed_;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_; // recoloured for each shape

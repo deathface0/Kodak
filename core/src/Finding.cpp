@@ -8,6 +8,13 @@ long long areaOf(const Rect& r) noexcept { return static_cast<long long>(r.width
 
 } // namespace
 
+bool toggleAt(std::vector<Finding>& findings, Point p) noexcept {
+    const std::optional<std::size_t> hit = topmostAt(findings, p);
+    if (!hit) return false;
+    findings[*hit].enabled = !findings[*hit].enabled;
+    return true;
+}
+
 std::vector<Finding> mergeOverlapping(std::vector<Finding> findings) {
     bool merged = true;
     while (merged) {
