@@ -1,10 +1,13 @@
 #include "App.h"
 
+#include "SettingsDialog.h"
+
 #include <kodak/win/CaptureFiles.h>
 #include <kodak/win/Clipboard.h>
 #include <kodak/win/PngEncoder.h>
 #include <kodak/win/SettingsFile.h>
 #include <kodak/win/ShortcutKeys.h>
+#include <kodak/win/WinOcrRecognizer.h>
 
 #include <shellapi.h>
 #include <windowsx.h>
@@ -27,14 +30,15 @@ constexpr UINT_PTR captureTimerId = 1;
 // Lets the tray menu finish fading out so it is not in the capture.
 constexpr UINT menuFadeDelayMs = 250;
 
-enum MenuCommand : UINT { menuCapture = 1, menuOpenFolder, menuExit };
+enum MenuCommand : UINT { menuCapture = 1, menuOpenFolder, menuSettings, menuExit };
 
 /// Our own ASCII messages and shortcut names, for the Windows API.
 std::wstring widen(std::string_view ascii) { return {ascii.begin(), ascii.end()}; }
 
 } // namespace
 
-App::App(HINSTANCE instance) : overlay_(instance, [this](const core::Image& image) { deliver(image); }) {
+App::App(HINSTANCE instance)
+    : instance_(instance), overlay_(instance, [this](const core::Image& image) { deliver(image); }) {
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
     windowClass.lpfnWndProc = windowProc;
@@ -51,20 +55,19 @@ App::App(HINSTANCE instance) : overlay_(instance, [this](const core::Image& imag
         std::make_unique<win::TrayIcon>(window_, trayMessage, LoadIconW(nullptr, IDI_APPLICATION), L"Kodak");
 
     std::vector<std::string> warnings;
-    if (const auto path = win::settingsPath()) {
-        win::LoadedSettings loaded = win::loadSettings(*path);
+    settingsPath_ = win::settingsPath();
+    if (settingsPath_) {
+        win::LoadedSettings loaded = win::loadSettings(*settingsPath_);
         settings_ = std::move(loaded.settings);
         warnings = std::move(loaded.warnings);
     } else {
         warnings.emplace_back("could not find the AppData folder; using the defaults");
     }
+    settingsFileHadErrors_ = !warnings.empty();
     overlay_.configureDetection(settings_.userTerms, settings_.disabled);
 
-    if (const auto code = win::toHotkey(settings_.hotkey))
-        hotkey_ = std::make_unique<win::GlobalHotkey>(window_, hotkeyId, code->modifiers, code->virtualKey);
-
     // One notification at a time: a lost hotkey matters most.
-    if (!hotkey_ || !hotkey_->registered()) {
+    if (!registerHotkey()) {
         tray_->showWarning((hotkeyName() + L" is taken").c_str(),
                            L"Another application uses that shortcut. Capture from the Kodak tray icon menu.");
     } else if (!warnings.empty()) {
@@ -153,6 +156,7 @@ void App::showMenu(POINT anchor) {
     if (!menu) return;
     AppendMenuW(menu, MF_STRING, menuCapture, (L"Capture\t" + hotkeyName()).c_str());
     AppendMenuW(menu, MF_STRING, menuOpenFolder, L"Open captures folder");
+    AppendMenuW(menu, MF_STRING, menuSettings, L"Settings...");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, menuExit, L"Exit");
     SetMenuDefaultItem(menu, menuCapture, FALSE);
@@ -167,7 +171,11 @@ void App::showMenu(POINT anchor) {
     switch (command) {
     case menuCapture: SetTimer(window_, captureTimerId, menuFadeDelayMs, nullptr); break;
     case menuOpenFolder: openCapturesFolder(); break;
-    case menuExit: DestroyWindow(window_); break;
+    case menuSettings: openSettings(); break;
+    case menuExit:
+        if (settingsDialog_) EndDialog(settingsDialog_, IDCANCEL);
+        DestroyWindow(window_);
+        break;
     }
 }
 
@@ -186,6 +194,53 @@ void App::deliver(const core::Image& image) {
 }
 
 std::wstring App::hotkeyName() const { return widen(core::formatShortcut(settings_.hotkey)); }
+
+bool App::registerHotkey() {
+    hotkey_.reset(); // the same id: release the old shortcut before registering
+    if (const auto code = win::toHotkey(settings_.hotkey))
+        hotkey_ = std::make_unique<win::GlobalHotkey>(window_, hotkeyId, code->modifiers, code->virtualKey);
+    return hotkey_ && hotkey_->registered();
+}
+
+void App::openSettings() {
+    if (settingsDialog_) {
+        SetForegroundWindow(settingsDialog_);
+        return;
+    }
+
+    SettingsDialog::Context context;
+    context.settings = settings_;
+    {
+        const win::WinOcrRecognizer ocr;
+        if (ocr.available()) context.ocrLanguage = ocr.languageTag();
+    }
+    context.fileHadErrors = settingsFileHadErrors_;
+    context.apply = [this](const core::Settings& updated) { return applySettings(updated); };
+    SettingsDialog::run(instance_, window_, std::move(context), settingsDialog_);
+}
+
+std::optional<std::wstring> App::applySettings(const core::Settings& updated) {
+    if (!(updated.hotkey == settings_.hotkey) || !hotkey_ || !hotkey_->registered()) {
+        const core::Shortcut previous = settings_.hotkey;
+        settings_.hotkey = updated.hotkey;
+        if (!registerHotkey()) {
+            const std::wstring taken = hotkeyName();
+            settings_.hotkey = previous;
+            registerHotkey(); // keep the shortcut that worked
+            return taken + L" is used by another application. Choose another shortcut.";
+        }
+    }
+
+    settings_ = updated;
+    overlay_.configureDetection(settings_.userTerms, settings_.disabled);
+    if (settingsPath_ && win::saveSettings(*settingsPath_, settings_)) {
+        settingsFileHadErrors_ = false;
+    } else {
+        tray_->showWarning(L"Settings not saved",
+                           L"They are in use now, but settings.json could not be written.");
+    }
+    return std::nullopt;
+}
 
 void App::openCapturesFolder() {
     const auto folder = win::capturesFolder();

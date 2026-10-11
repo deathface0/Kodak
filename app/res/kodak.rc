@@ -1,0 +1,39 @@
+#include <windows.h>
+#include <commctrl.h>
+
+#include "../src/resource.h"
+
+// The settings window opened from the tray. Sizes are in dialog units; with the
+// PerMonitorV2 manifest Windows scales it for each monitor.
+IDD_SETTINGS DIALOGEX 0, 0, 280, 290
+STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Kodak settings"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Capture", IDC_STATIC, 7, 7, 266, 48
+    LTEXT           "Shortcut:", IDC_STATIC, 15, 22, 40, 8
+    CONTROL         "", IDC_HOTKEY, HOTKEY_CLASS, WS_TABSTOP | WS_BORDER, 58, 20, 120, 13
+    AUTOCHECKBOX    "Win key", IDC_HOTKEY_WIN, 188, 21, 70, 10
+    AUTOCHECKBOX    "Also save a PNG to Pictures\\Kodak", IDC_SAVE_PNG, 15, 39, 220, 10
+
+    GROUPBOX        "Look for", IDC_STATIC, 7, 61, 266, 80
+    AUTOCHECKBOX    "E-mail addresses", IDC_DETECT_EMAIL, 15, 74, 120, 10
+    AUTOCHECKBOX    "Card numbers", IDC_DETECT_CARD, 15, 87, 120, 10
+    AUTOCHECKBOX    "IBANs", IDC_DETECT_IBAN, 15, 100, 120, 10
+    AUTOCHECKBOX    "DNI and NIE numbers", IDC_DETECT_DNINIE, 15, 113, 120, 10
+    AUTOCHECKBOX    "Your own terms", IDC_DETECT_USERTERM, 15, 126, 120, 10
+    AUTOCHECKBOX    "Phone numbers", IDC_DETECT_PHONE, 145, 74, 120, 10
+    AUTOCHECKBOX    "IP addresses", IDC_DETECT_IP, 145, 87, 120, 10
+    AUTOCHECKBOX    "Secrets and tokens", IDC_DETECT_SECRET, 145, 100, 120, 10
+    AUTOCHECKBOX    "Values after ""password:""", IDC_DETECT_CONTEXT, 145, 113, 120, 10
+
+    GROUPBOX        "Your own terms (one per line: name, address...)", IDC_STATIC, 7, 147, 266, 82
+    EDITTEXT        IDC_TERMS, 15, 160, 250, 62, ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "", IDC_OCR_INFO, 7, 235, 266, 8
+    LTEXT           "", IDC_FILE_NOTE, 7, 246, 266, 8
+    LTEXT           "", IDC_ERROR, 7, 257, 156, 30
+
+    DEFPUSHBUTTON   "OK", IDOK, 169, 272, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 223, 272, 50, 14
+END

@@ -19,4 +19,9 @@ struct HotkeyCode {
 /// The RegisterHotKey codes for `shortcut`; std::nullopt for an unknown key name.
 std::optional<HotkeyCode> toHotkey(const core::Shortcut& shortcut);
 
+/// The shortcut for RegisterHotKey codes (MOD_* flags and a VK_* key), as read
+/// from a hotkey control; std::nullopt for keys Kodak does not support (arrows,
+/// numeric keypad, punctuation...).
+std::optional<core::Shortcut> fromHotkey(UINT modifiers, UINT virtualKey);
+
 } // namespace kodak::win

@@ -87,3 +87,24 @@ TEST_CASE("a newer version is read as far as it is understood") {
     CHECK_FALSE(read(R"({"version": 2, "saveToFile": false})", warnings).saveToFile);
     CHECK(warnings.size() == 1);
 }
+
+TEST_CASE("terms are edited one per line") {
+    using kodak::core::joinTerms;
+    using kodak::core::splitTerms;
+    const std::vector<std::u32string> terms{U"Jos\u00E9 P\u00E9rez", U"Calle Mayor 5"};
+
+    CHECK(joinTerms(terms) == U"Jos\u00E9 P\u00E9rez\nCalle Mayor 5");
+    CHECK(joinTerms(terms, U"\r\n") == U"Jos\u00E9 P\u00E9rez\r\nCalle Mayor 5");
+    CHECK(splitTerms(joinTerms(terms, U"\r\n")) == terms);
+    CHECK(joinTerms({}).empty());
+}
+
+TEST_CASE("splitting drops blank lines, spaces and repeats") {
+    using kodak::core::splitTerms;
+    CHECK(splitTerms(U"  Ana  \r\n\r\n\tCalle Mayor 5\n") ==
+          std::vector<std::u32string>{U"Ana", U"Calle Mayor 5"});
+    CHECK(splitTerms(U"Jos\u00E9\njose\nJOSE") ==
+          std::vector<std::u32string>{U"Jos\u00E9"}); // same to the search
+    CHECK(splitTerms(U"").empty());
+    CHECK(splitTerms(U"\r\n \n").empty());
+}

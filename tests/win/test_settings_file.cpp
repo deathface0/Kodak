@@ -83,3 +83,27 @@ TEST_CASE("shortcuts map to RegisterHotKey codes") {
     CHECK_FALSE(toHotkey(Shortcut{.ctrl = true, .key = "Foo"}).has_value());
     CHECK_FALSE(toHotkey(Shortcut{.ctrl = true, .key = "F99"}).has_value());
 }
+
+TEST_CASE("RegisterHotKey codes map back to shortcuts") {
+    using kodak::win::fromHotkey;
+    CHECK(fromHotkey(MOD_CONTROL | MOD_SHIFT, 'X') == Shortcut{.ctrl = true, .shift = true, .key = "X"});
+    CHECK(fromHotkey(0, VK_F12) == Shortcut{.key = "F12"});
+    CHECK(fromHotkey(MOD_ALT | MOD_WIN, VK_SNAPSHOT) ==
+          Shortcut{.alt = true, .win = true, .key = "PrintScreen"});
+    CHECK_FALSE(fromHotkey(MOD_CONTROL, VK_LEFT).has_value());    // arrows are not supported
+    CHECK_FALSE(fromHotkey(MOD_CONTROL, VK_NUMPAD5).has_value()); // nor the keypad
+    CHECK_FALSE(fromHotkey(MOD_CONTROL, VK_OEM_1).has_value());   // nor punctuation
+}
+
+TEST_CASE("every supported shortcut survives a round trip through the codes") {
+    for (const char* text :
+         {"Ctrl+Shift+X", "Alt+7", "F1", "F24", "Win+PrintScreen", "Ctrl+Alt+Delete", "Shift+Pause",
+          "Ctrl+Insert", "Ctrl+Home", "Ctrl+End", "Ctrl+PageUp", "Ctrl+PageDown", "Ctrl+Space"}) {
+        INFO(text);
+        const auto shortcut = kodak::core::parseShortcut(text);
+        REQUIRE(shortcut);
+        const auto code = toHotkey(*shortcut);
+        REQUIRE(code);
+        CHECK(kodak::win::fromHotkey(code->modifiers, code->virtualKey) == shortcut);
+    }
+}

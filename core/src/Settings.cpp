@@ -1,9 +1,11 @@
 #include "kodak/core/Settings.h"
 
+#include "kodak/core/TextNormalize.h"
 #include "kodak/core/Utf8.h"
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -110,6 +112,36 @@ Settings fromJson(std::string_view text, std::vector<std::string>& warnings) {
         }
     }
     return settings;
+}
+
+std::u32string joinTerms(const std::vector<std::u32string>& terms, std::u32string_view newline) {
+    std::u32string text;
+    for (std::size_t i = 0; i < terms.size(); ++i) {
+        if (i > 0) text += newline;
+        text += terms[i];
+    }
+    return text;
+}
+
+std::vector<std::u32string> splitTerms(std::u32string_view text) {
+    std::vector<std::u32string> terms;
+    std::vector<std::u32string> seen; // folded, to drop "Ana" after "ana"
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t end = std::min(text.find(U'\n', start), text.size());
+        std::u32string line(text.substr(start, end - start));
+        if (!line.empty() && line.back() == U'\r') line.pop_back();
+        line = trimmed(std::move(line));
+        if (!line.empty()) {
+            std::u32string folded = foldForSearch(line);
+            if (std::find(seen.begin(), seen.end(), folded) == seen.end()) {
+                seen.push_back(std::move(folded));
+                terms.push_back(std::move(line));
+            }
+        }
+        start = end + 1;
+    }
+    return terms;
 }
 
 } // namespace kodak::core

@@ -28,4 +28,11 @@ std::string toJson(const Settings& settings);
 /// valid JSON gives the defaults and a warning. Comments are allowed.
 Settings fromJson(std::string_view json, std::vector<std::string>& warnings);
 
+/// The user's terms as an editable text, one per line.
+std::u32string joinTerms(const std::vector<std::u32string>& terms, std::u32string_view newline = U"\n");
+
+/// The lines of `text` (LF or CRLF) as terms: trimmed, without empty lines or
+/// repeats (ignoring case and accents, as the search does).
+std::vector<std::u32string> splitTerms(std::u32string_view text);
+
 } // namespace kodak::core

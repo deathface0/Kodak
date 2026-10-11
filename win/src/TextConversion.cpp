@@ -30,4 +30,20 @@ std::u32string toUtf32(std::wstring_view text) {
     return out;
 }
 
+std::wstring toUtf16(std::u32string_view text) {
+    std::wstring out;
+    out.reserve(text.size());
+    for (char32_t c : text) {
+        if (c > 0x10FFFF || isHighSurrogate(c) || isLowSurrogate(c)) c = replacement;
+        if (c >= 0x10000) {
+            c -= 0x10000;
+            out += static_cast<wchar_t>(0xD800 + (c >> 10));
+            out += static_cast<wchar_t>(0xDC00 + (c & 0x3FF));
+        } else {
+            out += static_cast<wchar_t>(c);
+        }
+    }
+    return out;
+}
+
 } // namespace kodak::win

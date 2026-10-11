@@ -9,7 +9,9 @@
 
 #include <windows.h>
 
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace kodak::app {
@@ -41,8 +43,20 @@ private:
     /// The capture shortcut as shown to the user ("Ctrl+Shift+X").
     std::wstring hotkeyName() const;
 
+    /// Opens the settings window, or brings it to the front if it is open.
+    void openSettings();
+    /// Puts `updated` in use and saves it; a message if the new shortcut is taken
+    /// (the old one then stays registered and nothing changes).
+    std::optional<std::wstring> applySettings(const core::Settings& updated);
+    /// Registers the shortcut of settings_; false if another application owns it.
+    bool registerHotkey();
+
+    HINSTANCE instance_;
     HWND window_ = nullptr;
     core::Settings settings_;
+    std::optional<std::filesystem::path> settingsPath_;
+    bool settingsFileHadErrors_ = false;
+    HWND settingsDialog_ = nullptr;
     std::unique_ptr<win::TrayIcon> tray_;
     std::unique_ptr<win::GlobalHotkey> hotkey_;
     win::GdiScreenSource screen_;
