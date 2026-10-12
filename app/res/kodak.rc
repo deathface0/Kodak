@@ -2,6 +2,39 @@
 #include <commctrl.h>
 
 #include "../src/resource.h"
+#include "version.h"
+
+// The first icon resource is the one Explorer shows for kodak.exe.
+IDI_KODAK ICON "kodak.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION KODAK_VERSION_MAJOR, KODAK_VERSION_MINOR, KODAK_VERSION_PATCH, 0
+PRODUCTVERSION KODAK_VERSION_MAJOR, KODAK_VERSION_MINOR, KODAK_VERSION_PATCH, 0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "deathface0"
+            VALUE "FileDescription", "Kodak - screenshots that redact sensitive data"
+            VALUE "FileVersion", KODAK_VERSION_TEXT
+            VALUE "InternalName", "kodak"
+            VALUE "LegalCopyright", "Copyright (c) 2026 deathface0. MIT License."
+            VALUE "OriginalFilename", "kodak.exe"
+            VALUE "ProductName", "Kodak"
+            VALUE "ProductVersion", KODAK_VERSION_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
 
 // The settings window opened from the tray. Sizes are in dialog units; with the
 // PerMonitorV2 manifest Windows scales it for each monitor.

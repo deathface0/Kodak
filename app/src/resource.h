@@ -6,6 +6,8 @@
 #define IDC_STATIC -1
 #endif
 
+#define IDI_KODAK 1
+
 #define IDD_SETTINGS 100
 
 #define IDC_HOTKEY 1001

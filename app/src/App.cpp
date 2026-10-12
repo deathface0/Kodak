@@ -1,6 +1,8 @@
 #include "App.h"
 
 #include "SettingsDialog.h"
+#include "resource.h"
+#include "version.h"
 
 #include <kodak/win/CaptureFiles.h>
 #include <kodak/win/Clipboard.h>
@@ -9,6 +11,7 @@
 #include <kodak/win/ShortcutKeys.h>
 #include <kodak/win/WinOcrRecognizer.h>
 
+#include <commctrl.h>
 #include <shellapi.h>
 #include <windowsx.h>
 
@@ -51,8 +54,11 @@ App::App(HINSTANCE instance)
     CreateWindowExW(0, className, L"Kodak", WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr, instance, this);
     if (!window_) return;
 
-    tray_ =
-        std::make_unique<win::TrayIcon>(window_, trayMessage, LoadIconW(nullptr, IDI_APPLICATION), L"Kodak");
+    // The small icon for the current DPI, so the tray shows it sharp.
+    LoadIconMetric(instance_, MAKEINTRESOURCEW(IDI_KODAK), LIM_SMALL, &trayIcon_);
+    tray_ = std::make_unique<win::TrayIcon>(window_, trayMessage,
+                                            trayIcon_ ? trayIcon_ : LoadIconW(nullptr, IDI_APPLICATION),
+                                            L"Kodak " KODAK_VERSION_WIDE);
 
     std::vector<std::string> warnings;
     settingsPath_ = win::settingsPath();
@@ -79,6 +85,7 @@ App::App(HINSTANCE instance)
 
 App::~App() {
     if (window_) DestroyWindow(window_);
+    if (trayIcon_) DestroyIcon(trayIcon_);
 }
 
 int App::run() {

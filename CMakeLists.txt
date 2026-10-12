@@ -5,6 +5,9 @@ project(kodak
     DESCRIPTION "Screenshots that redact sensitive data before they leave the computer"
     LANGUAGES CXX)
 
+# The static C runtime: kodak.exe runs without the Visual C++ Redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 option(KODAK_BUILD_TESTS "Build the Kodak unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(KODAK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 

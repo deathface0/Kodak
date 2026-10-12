@@ -1,0 +1,72 @@
+name: Release
+
+# Builds, tests and publishes kodak.exe when a version tag (v2.0.0...) is pushed.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish ${{ github.ref_name }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check that the tag matches the project version
+        id: version
+        shell: pwsh
+        run: |
+          $match = Select-String -Path CMakeLists.txt -Pattern '^\s*VERSION\s+(\d+\.\d+\.\d+)' | Select-Object -First 1
+          $version = $match.Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match the project version $version in CMakeLists.txt"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Set up the MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake --preset msvc-ninja -DKODAK_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build --preset msvc-ninja-release
+
+      - name: Test
+        run: ctest --preset msvc-ninja-release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "kodak-${{ steps.version.outputs.version }}-win64"
+          New-Item -ItemType Directory -Force dist/$name | Out-Null
+          Copy-Item build/msvc-ninja/app/Release/kodak.exe, README.md, LICENSE dist/$name
+          Compress-Archive -Path dist/$name/* -DestinationPath dist/$name.zip
+          $hash = (Get-FileHash dist/$name.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii dist/$name.zip.sha256
+
+      - name: Release notes from the changelog
+        shell: pwsh
+        run: |
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern '^## \[${{ steps.version.outputs.version }}\]').LineNumber
+          if (-not $start) { throw "CHANGELOG.md has no section for ${{ steps.version.outputs.version }}" }
+          $notes = foreach ($line in $lines[$start..($lines.Count - 1)]) {
+            if ($line -match '^## \[' -or $line -match '^\[.+\]: ') { break }
+            $line
+          }
+          $notes | Out-File -Encoding utf8 dist/notes.md
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Kodak ${{ steps.version.outputs.version }}
+          body_path: dist/notes.md
+          files: |
+            dist/kodak-${{ steps.version.outputs.version }}-win64.zip
+            dist/kodak-${{ steps.version.outputs.version }}-win64.zip.sha256

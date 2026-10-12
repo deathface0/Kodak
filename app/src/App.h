@@ -52,6 +52,7 @@ private:
     bool registerHotkey();
 
     HINSTANCE instance_;
+    HICON trayIcon_ = nullptr; // owned: loaded for the tray's DPI
     HWND window_ = nullptr;
     core::Settings settings_;
     std::optional<std::filesystem::path> settingsPath_;
