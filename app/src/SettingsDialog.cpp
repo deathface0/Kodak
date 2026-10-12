@@ -15,7 +15,7 @@ namespace kodak::app {
 namespace {
 
 struct State {
-    SettingsDialog::Context context;
+    SettingsContext context;
     HWND* handle;
 };
 
@@ -48,7 +48,7 @@ std::wstring textOf(HWND control) {
     return text;
 }
 
-void initialise(HWND dialog, const SettingsDialog::Context& context) {
+void initialise(HWND dialog, const SettingsContext& context) {
     const core::Settings& settings = context.settings;
 
     // The hotkey control shows Ctrl, Shift and Alt; Win has its own checkbox.
@@ -166,7 +166,7 @@ INT_PTR CALLBACK dialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lPa
 
 } // namespace
 
-void SettingsDialog::run(HINSTANCE instance, HWND owner, Context context, HWND& handle) {
+void runSettingsDialog(HINSTANCE instance, HWND owner, SettingsContext context, HWND& handle) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_HOTKEY_CLASS};
     InitCommonControlsEx(&controls);
 

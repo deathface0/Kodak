@@ -39,34 +39,11 @@
     { "name": "linux", "configurePreset": "linux" }
   ],
   "testPresets": [
-    {
-      "name": "msvc-debug",
-      "configurePreset": "msvc",
-      "configuration": "Debug",
-      "output": { "outputOnFailure": true }
-    },
-    {
-      "name": "msvc-release",
-      "configurePreset": "msvc",
-      "configuration": "Release",
-      "output": { "outputOnFailure": true }
-    },
-    {
-      "name": "msvc-ninja-debug",
-      "configurePreset": "msvc-ninja",
-      "configuration": "Debug",
-      "output": { "outputOnFailure": true }
-    },
-    {
-      "name": "msvc-ninja-release",
-      "configurePreset": "msvc-ninja",
-      "configuration": "Release",
-      "output": { "outputOnFailure": true }
-    },
-    {
-      "name": "linux",
-      "configurePreset": "linux",
-      "output": { "outputOnFailure": true }
-    }
+    { "name": "base", "hidden": true, "output": { "outputOnFailure": true } },
+    { "name": "msvc-debug", "inherits": "base", "configurePreset": "msvc", "configuration": "Debug" },
+    { "name": "msvc-release", "inherits": "base", "configurePreset": "msvc", "configuration": "Release" },
+    { "name": "msvc-ninja-debug", "inherits": "base", "configurePreset": "msvc-ninja", "configuration": "Debug" },
+    { "name": "msvc-ninja-release", "inherits": "base", "configurePreset": "msvc-ninja", "configuration": "Release" },
+    { "name": "linux", "inherits": "base", "configurePreset": "linux" }
   ]
 }

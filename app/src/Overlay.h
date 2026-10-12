@@ -1,5 +1,7 @@
 #pragma once
 
+#include "WindowOwner.h"
+
 #include <kodak/core/Finding.h>
 #include <kodak/core/Geometry.h>
 #include <kodak/core/Image.h>
@@ -13,7 +15,6 @@
 
 #include <cstddef>
 #include <functional>
-#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -26,7 +27,9 @@ namespace kodak::app {
 /// then reviews it: sensitive text found by the OCR is proposed for redaction
 /// (a click turns a proposal off or on), solid boxes can be drawn by hand, and
 /// Enter or a double-click confirms. Esc or switching away cancels.
-class Overlay {
+class Overlay : WindowOwner<Overlay> {
+    friend WindowOwner<Overlay>;
+
 public:
     /// Receives the selected pixels, already redacted, once the user confirms.
     using SelectHandler = std::function<void(const core::Image&)>;
@@ -49,7 +52,6 @@ private:
     enum class Drag { None, Selection, Box };
     enum class Detection { Idle, Running, Done, Unavailable };
 
-    static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handle(UINT message, WPARAM wParam, LPARAM lParam);
 
     void onButtonDown(core::Point p);
@@ -57,6 +59,9 @@ private:
     void onDoubleClick(core::Point p);
     void onRightClick(core::Point p);
     void removeLastBox();
+    void toggleProposal(std::size_t index);
+    /// Forgets the proposals and what was painted or hovered for them.
+    void clearProposals() noexcept;
 
     /// Looks for sensitive text in the selection on a worker thread.
     void startDetection();
@@ -79,6 +84,8 @@ private:
     /// The list of proposals beside the selection: kind and masked text, click to toggle.
     void paintPanel(float scale);
     void paintHelp(float scale);
+    /// The dark rounded background of the panel and the help line.
+    void fillBackground(const D2D1_RECT_F& rect, float scale);
     std::wstring helpLine() const;
     std::optional<std::size_t> panelRowAt(core::Point p) const;
     /// Highlights the proposal under the cursor, in the panel or on the image.
@@ -96,7 +103,6 @@ private:
     /// Hides the window, stops the analysis and wipes the capture from memory.
     void close() noexcept;
 
-    HWND window_ = nullptr;
     SelectHandler onSelect_;
     win::ScreenCapture capture_;
 
@@ -116,9 +122,9 @@ private:
     bool confirmPending_ = false;
     unsigned generation_ = 0; // tells the current analysis from stopped ones
     std::jthread worker_;
-    std::mutex resultMutex_;
-    std::vector<core::Finding> result_; // written by the worker
-    bool resultAvailable_ = true;       // false when no OCR language is installed
+    // Written by the worker, read once it has been joined; std::nullopt when no
+    // OCR language is installed.
+    std::optional<std::vector<core::Finding>> result_;
 
     Microsoft::WRL::ComPtr<ID2D1Factory> factory_;
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> dashed_;

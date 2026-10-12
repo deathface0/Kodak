@@ -31,7 +31,7 @@ JoinedLine join(const OcrLine& line) {
 
 } // namespace
 
-TextDetector::TextDetector(TextRecognizer& recognizer, std::vector<std::unique_ptr<TextRule>> rules)
+TextDetector::TextDetector(TextRecognizer& recognizer, std::vector<TextRule> rules)
     : recognizer_(recognizer), rules_(std::move(rules)) {}
 
 int TextDetector::marginFor(int height) noexcept { return std::max(2, height / 5); }
@@ -53,7 +53,7 @@ std::vector<Finding> TextDetector::detect(const Image& image, const Rect& region
         const JoinedLine joined = join(line);
         std::vector<bool> matched(line.words.size(), false);
         for (const auto& rule : rules_) {
-            for (const TextMatch& match : rule->find(joined.text)) {
+            for (const TextMatch& match : rule(joined.text)) {
                 // Every word the match touches, even partly: better too much than a visible piece.
                 Rect covered;
                 for (std::size_t c = match.begin; c < match.end && c < joined.wordOf.size(); ++c) {
@@ -76,7 +76,7 @@ std::vector<Finding> TextDetector::detect(const Image& image, const Rect& region
                 continue;
             const std::u32string pair = left.text + right.text;
             for (const auto& rule : rules_) {
-                for (const TextMatch& match : rule->find(pair)) {
+                for (const TextMatch& match : rule(pair)) {
                     if (match.begin < left.text.size() && match.end > left.text.size())
                         propose(unite(left.box, right.box), match, pair);
                 }

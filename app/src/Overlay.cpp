@@ -2,7 +2,6 @@
 
 #include <kodak/core/Preview.h>
 #include <kodak/core/Redaction.h>
-#include <kodak/core/Selection.h>
 #include <kodak/core/TextDetector.h>
 #include <kodak/win/ComApartment.h>
 #include <kodak/win/TextConversion.h>
@@ -13,6 +12,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <numeric>
 #include <utility>
 
 namespace kodak::app {
@@ -119,17 +119,6 @@ void Overlay::configureDetection(std::vector<std::u32string> userTerms,
     disabledKinds_ = std::move(disabled);
 }
 
-LRESULT CALLBACK Overlay::windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
-    if (message == WM_NCCREATE) {
-        auto* self = static_cast<Overlay*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
-        self->window_ = window;
-        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-    }
-    if (auto* self = reinterpret_cast<Overlay*>(GetWindowLongPtrW(window, GWLP_USERDATA)))
-        return self->handle(message, wParam, lParam);
-    return DefWindowProcW(window, message, wParam, lParam);
-}
-
 LRESULT Overlay::handle(UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_PAINT: paint(); return 0;
@@ -194,8 +183,7 @@ LRESULT Overlay::handle(UINT message, WPARAM wParam, LPARAM lParam) {
 
 void Overlay::onButtonDown(core::Point p) {
     if (const auto row = panelRowAt(p)) { // a row of the panel toggles its proposal
-        proposals_[*row].enabled = !proposals_[*row].enabled;
-        redraw();
+        toggleProposal(*row);
         return;
     }
     // Inside the selection under review: a redaction box or a click on a
@@ -234,8 +222,7 @@ void Overlay::onButtonUp(core::Point p) {
 void Overlay::onDoubleClick(core::Point p) {
     if (mode_ != Mode::Reviewing) return;
     if (const auto row = panelRowAt(p)) { // two quick clicks on a row: two toggles, no confirm
-        proposals_[*row].enabled = !proposals_[*row].enabled;
-        redraw();
+        toggleProposal(*row);
         return;
     }
     // The first click of the double-click already toggled a proposal under the
@@ -261,11 +248,21 @@ void Overlay::removeLastBox() {
     redraw();
 }
 
-void Overlay::startDetection() {
-    stopDetection();
+void Overlay::toggleProposal(std::size_t index) {
+    proposals_[index].enabled = !proposals_[index].enabled;
+    redraw();
+}
+
+void Overlay::clearProposals() noexcept {
     proposals_.clear();
     hovered_.reset();
     panelRows_.clear();
+}
+
+void Overlay::startDetection() {
+    stopDetection();
+    clearProposals();
+    result_.reset();
     detection_ = Detection::Running;
     const unsigned generation = ++generation_;
 
@@ -273,28 +270,24 @@ void Overlay::startDetection() {
     worker_ = std::jthread([this, generation, part = core::crop(capture_.image, selection_),
                             origin = core::Point{selection_.x, selection_.y}, terms = userTerms_,
                             disabled = disabledKinds_](std::stop_token stop) mutable {
-        std::vector<core::Finding> found;
-        bool available = false;
+        std::optional<std::vector<core::Finding>> found; // stays empty without an OCR language
         {
             const win::ComApartment com(win::ComApartment::Model::MultiThreaded); // the OCR needs the MTA
             if (com.ok()) {
                 win::WinOcrRecognizer ocr;
-                available = ocr.available();
-                if (available) {
-                    core::TextDetector detector(ocr, core::defaultRules(std::move(terms), disabled));
-                    found = detector.detect(part, part.bounds(), stop);
-                }
+                if (ocr.available())
+                    found = core::TextDetector(ocr, core::defaultRules(terms, disabled))
+                                .detect(part, part.bounds(), stop);
             }
         }
         if (!part.bgra.empty()) SecureZeroMemory(part.bgra.data(), part.bgra.size());
         if (stop.stop_requested()) return;
 
-        for (core::Finding& finding : found) finding.area = core::offset(finding.area, origin.x, origin.y);
-        {
-            const std::lock_guard lock(resultMutex_);
-            result_ = std::move(found);
-            resultAvailable_ = available;
+        if (found) {
+            for (core::Finding& finding : *found)
+                finding.area = core::offset(finding.area, origin.x, origin.y);
         }
+        result_ = std::move(found);
         PostMessageW(window_, detectedMessage, generation, 0);
     });
 }
@@ -311,18 +304,13 @@ void Overlay::stopDetection() noexcept {
 
 void Overlay::onDetectionDone(WPARAM generation) {
     if (generation != generation_ || mode_ != Mode::Reviewing) return;
-    if (worker_.joinable()) worker_.join(); // posting was its last step
+    // Posting was the worker's last step; once joined, result_ is safe to read.
+    if (worker_.joinable()) worker_.join();
 
-    bool available = true;
-    {
-        const std::lock_guard lock(resultMutex_);
-        proposals_ = std::move(result_);
-        hovered_.reset();
-        panelRows_.clear();
-        result_.clear();
-        available = resultAvailable_;
-    }
-    detection_ = available ? Detection::Done : Detection::Unavailable;
+    clearProposals();
+    detection_ = result_ ? Detection::Done : Detection::Unavailable;
+    if (result_) proposals_ = std::move(*result_);
+    result_.reset();
     redraw();
     if (confirmPending_) confirm();
 }
@@ -368,23 +356,18 @@ void Overlay::paint() {
             }
             if (hovered_ == i) { // the box of the row under the cursor, or the box itself
                 brush_->SetColor(borderColour);
-                target_->DrawRectangle(
-                    D2D1::RectF(rect.left - 2, rect.top - 2, rect.right + 2, rect.bottom + 2), brush_.Get(),
-                    2.0f);
+                target_->DrawRectangle(toRectF(core::inflate(proposal.area, 2)), brush_.Get(), 2.0f);
             }
         }
 
-        std::vector<core::Rect> manual;
-        for (const core::Finding& box : boxes_) manual.push_back(box.area);
-        if (drag_ == Drag::Box)
-            manual.push_back(core::intersect(core::fromCorners(anchor_, current_), selection_));
-        for (const core::Rect& box : manual) {
-            const D2D1_RECT_F rect = toRectF(box);
+        auto paintBox = [&](const core::Rect& box) { // drawn by hand
             brush_->SetColor(boxColour);
-            target_->FillRectangle(rect, brush_.Get());
+            target_->FillRectangle(toRectF(box), brush_.Get());
             brush_->SetColor(boxOutlineColour);
-            target_->DrawRectangle(insideOutline(rect), brush_.Get(), 1.0f);
-        }
+            target_->DrawRectangle(insideOutline(toRectF(box)), brush_.Get(), 1.0f);
+        };
+        for (const core::Finding& box : boxes_) paintBox(box.area);
+        if (drag_ == Drag::Box) paintBox(core::intersect(core::fromCorners(anchor_, current_), selection_));
 
         panelRows_.clear();
         if (const float scale = textScale(); scale > 0) {
@@ -455,7 +438,7 @@ Microsoft::WRL::ComPtr<IDWriteTextLayout> Overlay::layoutText(const std::wstring
 std::vector<std::size_t> Overlay::panelOrder() const {
     // Reading order: top to bottom, then left to right.
     std::vector<std::size_t> order(proposals_.size());
-    for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::iota(order.begin(), order.end(), std::size_t{0});
     std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
         const core::Rect& ra = proposals_[a].area;
         const core::Rect& rb = proposals_[b].area;
@@ -515,10 +498,7 @@ void Overlay::paintPanel(float scale) {
     const float top =
         std::clamp(static_cast<float>(selection_.y), 0.0f, std::max(0.0f, imageHeight - height));
 
-    brush_->SetColor(helpBackColour);
-    target_->FillRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(left, top, left + width, top + height), 4 * scale, 4 * scale),
-        brush_.Get());
+    fillBackground(D2D1::RectF(left, top, left + width, top + height), scale);
 
     for (std::size_t row = 0; row < shown; ++row) {
         const std::size_t index = order[row];
@@ -561,10 +541,10 @@ void Overlay::paintPanel(float scale) {
 std::optional<std::size_t> Overlay::panelRowAt(core::Point p) const {
     const auto x = static_cast<float>(p.x);
     const auto y = static_cast<float>(p.y);
+    // panelRows_ is cleared whenever proposals_ changes, so every row's index is valid.
     for (const PanelRow& row : panelRows_) {
-        const bool inside =
-            x >= row.rect.left && x < row.rect.right && y >= row.rect.top && y < row.rect.bottom;
-        if (inside && row.proposal < proposals_.size()) return row.proposal;
+        if (x >= row.rect.left && x < row.rect.right && y >= row.rect.top && y < row.rect.bottom)
+            return row.proposal;
     }
     return std::nullopt;
 }
@@ -580,11 +560,8 @@ void Overlay::updateHover(core::Point p) {
 }
 
 void Overlay::paintHelp(float scale) {
-    const std::wstring text = helpLine();
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(writeFactory_->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
-                                               helpFormat_.Get(), 10000.0f, 1000.0f, &layout)))
-        return;
+    const Microsoft::WRL::ComPtr<IDWriteTextLayout> layout = layoutText(helpLine());
+    if (!layout) return;
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
@@ -602,12 +579,14 @@ void Overlay::paintHelp(float scale) {
     if (top < 0) top = static_cast<float>(selection_.y) + gap;
     const float left = std::clamp(static_cast<float>(selection_.x), 0.0f, std::max(0.0f, imageWidth - width));
 
-    brush_->SetColor(helpBackColour);
-    target_->FillRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(left, top, left + width, top + height), 4 * scale, 4 * scale),
-        brush_.Get());
+    fillBackground(D2D1::RectF(left, top, left + width, top + height), scale);
     brush_->SetColor(helpTextColour);
     target_->DrawTextLayout(D2D1::Point2F(left + padX, top + padY), layout.Get(), brush_.Get());
+}
+
+void Overlay::fillBackground(const D2D1_RECT_F& rect, float scale) {
+    brush_->SetColor(helpBackColour);
+    target_->FillRoundedRectangle(D2D1::RoundedRect(rect, 4 * scale, 4 * scale), brush_.Get());
 }
 
 bool Overlay::createDeviceResources() {
@@ -625,7 +604,8 @@ bool Overlay::createDeviceResources() {
     const bool created =
         SUCCEEDED(factory_->CreateHwndRenderTarget(
             targetProperties, D2D1::HwndRenderTargetProperties(window_, size), target_.GetAddressOf())) &&
-        SUCCEEDED(target_->CreateBitmap(size, capture_.image.bgra.data(), size.width * 4, bitmapProperties,
+        SUCCEEDED(target_->CreateBitmap(size, capture_.image.bgra.data(),
+                                        static_cast<UINT32>(capture_.image.stride()), bitmapProperties,
                                         bitmap_.GetAddressOf())) &&
         SUCCEEDED(target_->CreateSolidColorBrush(veilColour, brush_.GetAddressOf()));
     if (!created) releaseDeviceResources();
@@ -661,12 +641,10 @@ void Overlay::requestConfirm() {
 }
 
 void Overlay::confirm() {
-    core::Image part = core::crop(capture_.image, selection_);
-    std::vector<core::Finding> covered = boxes_;
-    covered.insert(covered.end(), proposals_.begin(), proposals_.end()); // redact() skips disabled ones
-    for (core::Finding& finding : covered)
-        finding.area = core::offset(finding.area, -selection_.x, -selection_.y);
-    core::redact(part, covered);
+    // close() wipes the capture anyway: paint over it, then cut the selection out.
+    core::redact(capture_.image, boxes_);
+    core::redact(capture_.image, proposals_); // skips the disabled ones
+    const core::Image part = core::crop(capture_.image, selection_);
 
     close();
     if (onSelect_) onSelect_(part);
@@ -678,9 +656,7 @@ void Overlay::close() noexcept {
     drag_ = Drag::None;
     selection_ = {};
     boxes_.clear();
-    proposals_.clear();
-    hovered_.reset();
-    panelRows_.clear();
+    clearProposals();
     if (window_ && IsWindowVisible(window_)) ShowWindow(window_, SW_HIDE);
     releaseDeviceResources();
     if (!capture_.image.bgra.empty())

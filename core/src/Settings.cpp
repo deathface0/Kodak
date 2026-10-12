@@ -3,6 +3,8 @@
 #include "kodak/core/TextNormalize.h"
 #include "kodak/core/Utf8.h"
 
+#include "TextChars.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -27,12 +29,6 @@ constexpr std::array<std::pair<const char*, FindingKind>, 9> detections{{
     {"contextValue", FindingKind::ContextValue},
     {"userTerm", FindingKind::UserTerm},
 }};
-
-std::u32string trimmed(std::u32string text) {
-    const std::size_t first = text.find_first_not_of(U" \t");
-    if (first == std::u32string::npos) return {};
-    return text.substr(first, text.find_last_not_of(U" \t") - first + 1);
-}
 
 } // namespace
 
@@ -106,8 +102,9 @@ Settings fromJson(std::string_view text, std::vector<std::string>& warnings) {
                     warnings.emplace_back("an entry of \"userTerms\" is not a text; ignored");
                     continue;
                 }
-                std::u32string value = trimmed(fromUtf8(term.get<std::string>()));
-                if (!value.empty()) settings.userTerms.push_back(std::move(value));
+                const std::u32string decoded = fromUtf8(term.get<std::string>());
+                if (const auto value = detail::trimSpaces(decoded); !value.empty())
+                    settings.userTerms.emplace_back(value);
             }
         }
     }
@@ -129,14 +126,14 @@ std::vector<std::u32string> splitTerms(std::u32string_view text) {
     std::size_t start = 0;
     while (start <= text.size()) {
         const std::size_t end = std::min(text.find(U'\n', start), text.size());
-        std::u32string line(text.substr(start, end - start));
-        if (!line.empty() && line.back() == U'\r') line.pop_back();
-        line = trimmed(std::move(line));
+        std::u32string_view line = text.substr(start, end - start);
+        if (line.ends_with(U'\r')) line.remove_suffix(1);
+        line = detail::trimSpaces(line);
         if (!line.empty()) {
             std::u32string folded = foldForSearch(line);
             if (std::find(seen.begin(), seen.end(), folded) == seen.end()) {
                 seen.push_back(std::move(folded));
-                terms.push_back(std::move(line));
+                terms.emplace_back(line);
             }
         }
         start = end + 1;

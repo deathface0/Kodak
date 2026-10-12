@@ -1,14 +1,12 @@
-# Everything that talks to Windows: capture, OCR, PNG/clipboard output, hotkey,
-# tray and single instance.
+# Everything that talks to Windows: capture, OCR, PNG/clipboard output, files,
+# hotkey codes and the tray icon.
 add_library(kodak_win STATIC
     src/CaptureFiles.cpp
     src/Clipboard.cpp
     src/GdiScreenSource.cpp
-    src/GlobalHotkey.cpp
     src/PngEncoder.cpp
     src/SettingsFile.cpp
     src/ShortcutKeys.cpp
-    src/SingleInstance.cpp
     src/TextConversion.cpp
     src/TrayIcon.cpp
     src/WinOcrRecognizer.cpp

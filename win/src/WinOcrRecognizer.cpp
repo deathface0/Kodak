@@ -2,12 +2,9 @@
 
 #include "kodak/win/TextConversion.h"
 
+#include "detail/Wic.h"
+
 #include <kodak/core/Tiling.h>
-
-#include <windows.h>
-
-#include <wincodec.h>
-#include <wrl/client.h>
 
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.h>
@@ -21,7 +18,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <optional>
 #include <utility>
 
 namespace kodak::win {
@@ -40,30 +36,20 @@ constexpr int maxEnlargedTile = 4096;
 // A word cut by a tile edge has to fit whole inside the neighbouring tile.
 constexpr int maxOverlap = 256;
 
-/// `image` enlarged `scale` times with high-quality cubic interpolation.
-std::optional<core::Image> enlarge(const core::Image& image) {
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IWICImagingFactory> factory;
-    if (FAILED(
-            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
-        return std::nullopt;
-
-    const auto width = static_cast<UINT>(image.width);
-    const auto height = static_cast<UINT>(image.height);
-    ComPtr<IWICBitmap> source;
-    ComPtr<IWICBitmapScaler> scaler;
-    if (FAILED(factory->CreateBitmapFromMemory(width, height, GUID_WICPixelFormat32bppBGRA, width * 4,
-                                               static_cast<UINT>(image.bgra.size()),
-                                               const_cast<BYTE*>(image.bgra.data()), &source)) ||
-        FAILED(factory->CreateBitmapScaler(&scaler)) ||
-        FAILED(scaler->Initialize(source.Get(), width * scale, height * scale,
-                                  WICBitmapInterpolationModeHighQualityCubic)))
-        return std::nullopt;
-
+/// `image` enlarged `scale` times with high-quality cubic interpolation; empty if WIC fails.
+core::Image enlarge(const core::Image& image) {
+    const detail::ComPtr<IWICImagingFactory> factory = detail::wicFactory();
+    if (!factory) return {};
+    const detail::ComPtr<IWICBitmap> source = detail::toWicBitmap(factory.Get(), image);
+    detail::ComPtr<IWICBitmapScaler> scaler;
     core::Image enlarged(image.width * scale, image.height * scale);
-    if (FAILED(scaler->CopyPixels(nullptr, static_cast<UINT>(enlarged.width) * 4,
+    if (!source || FAILED(factory->CreateBitmapScaler(&scaler)) ||
+        FAILED(scaler->Initialize(source.Get(), static_cast<UINT>(enlarged.width),
+                                  static_cast<UINT>(enlarged.height),
+                                  WICBitmapInterpolationModeHighQualityCubic)) ||
+        FAILED(scaler->CopyPixels(nullptr, static_cast<UINT>(enlarged.stride()),
                                   static_cast<UINT>(enlarged.bgra.size()), enlarged.bgra.data())))
-        return std::nullopt;
+        return {};
     return enlarged;
 }
 
@@ -178,9 +164,9 @@ std::vector<core::OcrLine> WinOcrRecognizer::recognize(const core::Image& image,
                 const core::Rect tile{area.x + tx.begin, area.y + ty.begin, tx.end - tx.begin,
                                       ty.end - ty.begin};
 
-                const std::optional<core::Image> enlarged = enlarge(core::crop(image, tile));
-                if (!enlarged) continue;
-                const auto result = engine_->ocr.RecognizeAsync(toSoftwareBitmap(*enlarged)).get();
+                const core::Image enlarged = enlarge(core::crop(image, tile));
+                if (enlarged.empty()) continue;
+                const auto result = engine_->ocr.RecognizeAsync(toSoftwareBitmap(enlarged)).get();
 
                 for (const auto& line : result.Lines()) {
                     TileLine piece{{}, r, c};

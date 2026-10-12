@@ -4,6 +4,8 @@
 // for; anything above it counts as part of a word so a rule never fires inside
 // a longer non-ASCII word.
 
+#include <string_view>
+
 namespace kodak::core::detail {
 
 constexpr bool isDigit(char32_t c) noexcept { return c >= U'0' && c <= U'9'; }
@@ -21,5 +23,12 @@ constexpr bool isWordChar(char32_t c) noexcept {
 
 constexpr char32_t toUpper(char32_t c) noexcept { return isLower(c) ? c - U'a' + U'A' : c; }
 constexpr int digitValue(char32_t c) noexcept { return static_cast<int>(c - U'0'); }
+
+/// `text` without the spaces at either end.
+constexpr std::u32string_view trimSpaces(std::u32string_view text) noexcept {
+    while (!text.empty() && isSpace(text.front())) text.remove_prefix(1);
+    while (!text.empty() && isSpace(text.back())) text.remove_suffix(1);
+    return text;
+}
 
 } // namespace kodak::core::detail

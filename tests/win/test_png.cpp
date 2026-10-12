@@ -94,13 +94,13 @@ Image decode(const std::vector<std::uint8_t>& png) {
 
 TEST_CASE("the PNG holds only image and colour chunks and nothing after IEND") {
     const auto png = encodePng(testImage());
-    REQUIRE(png);
+    REQUIRE_FALSE(png.empty());
 
     const std::vector<std::uint8_t> signature{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
-    REQUIRE(png->size() > signature.size());
-    CHECK(std::vector<std::uint8_t>(png->begin(), png->begin() + 8) == signature);
+    REQUIRE(png.size() > signature.size());
+    CHECK(std::vector<std::uint8_t>(png.begin(), png.begin() + 8) == signature);
 
-    const Chunks chunks = readChunks(*png);
+    const Chunks chunks = readChunks(png);
     REQUIRE_FALSE(chunks.types.empty());
     CHECK(chunks.types.front() == "IHDR");
     CHECK(chunks.types.back() == "IEND");
@@ -110,18 +110,18 @@ TEST_CASE("the PNG holds only image and colour chunks and nothing after IEND") {
         INFO("chunk ", type);
         CHECK((type == "IHDR" || type == "sRGB" || type == "gAMA" || type == "IDAT" || type == "IEND"));
     }
-    CHECK(chunks.endOfIend == png->size());
+    CHECK(chunks.endOfIend == png.size());
 }
 
 TEST_CASE("the PNG decodes back to the same pixels") {
     const Image original = testImage();
     const auto png = encodePng(original);
-    REQUIRE(png);
+    REQUIRE_FALSE(png.empty());
 
-    const Image decoded = decode(*png);
+    const Image decoded = decode(png);
     REQUIRE(decoded.width == original.width);
     REQUIRE(decoded.height == original.height);
     CHECK(decoded.bgra == original.bgra);
 }
 
-TEST_CASE("an empty image is not encoded") { CHECK_FALSE(encodePng(Image{})); }
+TEST_CASE("an empty image is not encoded") { CHECK(encodePng(Image{}).empty()); }

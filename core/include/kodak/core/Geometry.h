@@ -68,4 +68,11 @@ constexpr Rect fromCorners(Point a, Point b) noexcept {
     return {left, top, std::max(a.x, b.x) - left + 1, std::max(a.y, b.y) - top + 1};
 }
 
+/// Selections narrower or shorter than this are treated as a stray click.
+inline constexpr int minSelectionSide = 4;
+
+constexpr bool isUsableSelection(const Rect& selection) noexcept {
+    return selection.width >= minSelectionSide && selection.height >= minSelectionSide;
+}
+
 } // namespace kodak::core

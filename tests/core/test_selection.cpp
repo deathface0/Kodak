@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 
-#include <kodak/core/Selection.h>
+#include <kodak/core/Geometry.h>
 
 using kodak::core::isUsableSelection;
 using kodak::core::minSelectionSide;

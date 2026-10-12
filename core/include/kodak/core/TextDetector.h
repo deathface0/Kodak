@@ -4,7 +4,6 @@
 #include "kodak/core/TextRecognizer.h"
 #include "kodak/core/TextRule.h"
 
-#include <memory>
 #include <vector>
 
 namespace kodak::core {
@@ -13,7 +12,7 @@ namespace kodak::core {
 /// rules on each line and covers every word a match touches, with a margin.
 class TextDetector final : public Detector {
 public:
-    TextDetector(TextRecognizer& recognizer, std::vector<std::unique_ptr<TextRule>> rules);
+    TextDetector(TextRecognizer& recognizer, std::vector<TextRule> rules);
 
     std::vector<Finding> detect(const Image& image, const Rect& region, std::stop_token stop) override;
 
@@ -22,7 +21,7 @@ public:
 
 private:
     TextRecognizer& recognizer_;
-    std::vector<std::unique_ptr<TextRule>> rules_;
+    std::vector<TextRule> rules_;
 };
 
 } // namespace kodak::core

@@ -16,7 +16,6 @@
 #include <windowsx.h>
 
 #include <cstdint>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -58,7 +57,7 @@ App::App(HINSTANCE instance)
     LoadIconMetric(instance_, MAKEINTRESOURCEW(IDI_KODAK), LIM_SMALL, &trayIcon_);
     tray_ = std::make_unique<win::TrayIcon>(window_, trayMessage,
                                             trayIcon_ ? trayIcon_ : LoadIconW(nullptr, IDI_APPLICATION),
-                                            L"Kodak " KODAK_VERSION_WIDE);
+                                            L"Kodak " KODAK_VERSION_TEXT);
 
     std::vector<std::string> warnings;
     settingsPath_ = win::settingsPath();
@@ -97,22 +96,6 @@ int App::run() {
     return static_cast<int>(message.wParam);
 }
 
-LRESULT CALLBACK App::windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
-    if (message == WM_NCCREATE) {
-        auto* self = static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
-        self->window_ = window;
-        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-    }
-    auto* self = reinterpret_cast<App*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (message == WM_NCDESTROY && self) {
-        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-        self->window_ = nullptr;
-    } else if (self) {
-        return self->handle(message, wParam, lParam);
-    }
-    return DefWindowProcW(window, message, wParam, lParam);
-}
-
 LRESULT App::handle(UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == win::TrayIcon::taskbarCreatedMessage()) {
         if (tray_) tray_->restore();
@@ -139,7 +122,7 @@ LRESULT App::handle(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_DESTROY:
-        hotkey_.reset();
+        if (hotkeyRegistered_) UnregisterHotKey(window_, hotkeyId);
         tray_.reset();
         PostQuitMessage(0);
         return 0;
@@ -187,15 +170,14 @@ void App::showMenu(POINT anchor) {
 }
 
 void App::deliver(const core::Image& image) {
-    const auto png = win::encodePng(image);
+    const std::vector<std::uint8_t> png = win::encodePng(image);
     // The clipboard still gets the bitmap if PNG encoding failed.
-    if (!win::copyImageToClipboard(
-            window_, image, png ? std::span<const std::uint8_t>(*png) : std::span<const std::uint8_t>()))
+    if (!win::copyImageToClipboard(window_, image, png))
         tray_->showWarning(L"Could not copy the capture", L"The clipboard is busy. Please try again.");
 
     if (!settings_.saveToFile) return;
     const auto folder = win::capturesFolder();
-    if (!png || !folder || !win::saveCapture(*folder, *png, win::localNow()))
+    if (png.empty() || !folder || !win::saveCapture(*folder, png, win::localNow()))
         tray_->showWarning(L"Could not save the capture",
                            L"The PNG file could not be written to Pictures\\Kodak.");
 }
@@ -203,10 +185,11 @@ void App::deliver(const core::Image& image) {
 std::wstring App::hotkeyName() const { return widen(core::formatShortcut(settings_.hotkey)); }
 
 bool App::registerHotkey() {
-    hotkey_.reset(); // the same id: release the old shortcut before registering
-    if (const auto code = win::toHotkey(settings_.hotkey))
-        hotkey_ = std::make_unique<win::GlobalHotkey>(window_, hotkeyId, code->modifiers, code->virtualKey);
-    return hotkey_ && hotkey_->registered();
+    if (hotkeyRegistered_) UnregisterHotKey(window_, hotkeyId); // the same id: release the old shortcut first
+    const auto code = win::toHotkey(settings_.hotkey);
+    hotkeyRegistered_ =
+        code && RegisterHotKey(window_, hotkeyId, code->modifiers | MOD_NOREPEAT, code->virtualKey);
+    return hotkeyRegistered_;
 }
 
 void App::openSettings() {
@@ -215,19 +198,13 @@ void App::openSettings() {
         return;
     }
 
-    SettingsDialog::Context context;
-    context.settings = settings_;
-    {
-        const win::WinOcrRecognizer ocr;
-        if (ocr.available()) context.ocrLanguage = ocr.languageTag();
-    }
-    context.fileHadErrors = settingsFileHadErrors_;
-    context.apply = [this](const core::Settings& updated) { return applySettings(updated); };
-    SettingsDialog::run(instance_, window_, std::move(context), settingsDialog_);
+    SettingsContext context{settings_, win::WinOcrRecognizer().languageTag(), settingsFileHadErrors_,
+                            [this](const core::Settings& updated) { return applySettings(updated); }};
+    runSettingsDialog(instance_, window_, std::move(context), settingsDialog_);
 }
 
 std::optional<std::wstring> App::applySettings(const core::Settings& updated) {
-    if (!(updated.hotkey == settings_.hotkey) || !hotkey_ || !hotkey_->registered()) {
+    if (updated.hotkey != settings_.hotkey || !hotkeyRegistered_) {
         const core::Shortcut previous = settings_.hotkey;
         settings_.hotkey = updated.hotkey;
         if (!registerHotkey()) {

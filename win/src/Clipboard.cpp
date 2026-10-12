@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 
 namespace kodak::win {
 
@@ -17,60 +18,50 @@ bool openClipboard(HWND owner) {
     return false;
 }
 
-/// Frees the memory block unless ownership passed to the clipboard.
-struct GlobalBlock {
-    HGLOBAL handle = nullptr;
-
-    GlobalBlock() = default;
-    ~GlobalBlock() {
-        if (handle) GlobalFree(handle);
-    }
-    GlobalBlock(const GlobalBlock&) = delete;
-    GlobalBlock& operator=(const GlobalBlock&) = delete;
+/// A movable memory block, freed unless ownership passes to the clipboard (release()).
+struct GlobalFreer {
+    void operator()(HGLOBAL block) const noexcept { GlobalFree(block); }
 };
+using GlobalBlock = std::unique_ptr<void, GlobalFreer>;
 
-/// A BITMAPV5HEADER followed by the pixels, bottom-up: the layout every reader understands.
-bool fillDibV5(GlobalBlock& block, const core::Image& image) {
-    const std::size_t rowBytes = static_cast<std::size_t>(image.width) * 4;
-    const std::size_t pixelBytes = rowBytes * static_cast<std::size_t>(image.height);
-    block.handle = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPV5HEADER) + pixelBytes);
-    if (!block.handle) return false;
-
-    auto* header = static_cast<BITMAPV5HEADER*>(GlobalLock(block.handle));
-    if (!header) return false;
-    *header = {};
-    header->bV5Size = sizeof(BITMAPV5HEADER);
-    header->bV5Width = image.width;
-    header->bV5Height = image.height;
-    header->bV5Planes = 1;
-    header->bV5BitCount = 32;
-    header->bV5Compression = BI_BITFIELDS;
-    header->bV5SizeImage = static_cast<DWORD>(pixelBytes);
-    header->bV5RedMask = 0x00FF0000;
-    header->bV5GreenMask = 0x0000FF00;
-    header->bV5BlueMask = 0x000000FF;
-    header->bV5AlphaMask = 0xFF000000;
-    header->bV5CSType = LCS_sRGB;
-    header->bV5Intent = LCS_GM_IMAGES;
-
-    auto* pixels = reinterpret_cast<std::uint8_t*>(header + 1);
-    for (int row = 0; row < image.height; ++row) {
-        const std::size_t srcRow = static_cast<std::size_t>(image.height - 1 - row);
-        std::memcpy(pixels + static_cast<std::size_t>(row) * rowBytes, image.bgra.data() + srcRow * rowBytes,
-                    rowBytes);
-    }
-    GlobalUnlock(block.handle);
-    return true;
+/// A block of `size` bytes filled by `fill(bytes)`; null if memory runs out.
+template <typename Fill> GlobalBlock globalBlock(std::size_t size, Fill fill) {
+    GlobalBlock block(GlobalAlloc(GMEM_MOVEABLE, size));
+    auto* bytes = block ? static_cast<std::uint8_t*>(GlobalLock(block.get())) : nullptr;
+    if (!bytes) return nullptr;
+    fill(bytes);
+    GlobalUnlock(block.get());
+    return block;
 }
 
-bool fillBytes(GlobalBlock& block, std::span<const std::uint8_t> bytes) {
-    block.handle = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
-    if (!block.handle) return false;
-    void* data = GlobalLock(block.handle);
-    if (!data) return false;
-    std::memcpy(data, bytes.data(), bytes.size());
-    GlobalUnlock(block.handle);
-    return true;
+/// A BITMAPV5HEADER followed by the pixels, bottom-up: the layout every reader understands.
+GlobalBlock dibV5(const core::Image& image) {
+    const std::size_t rowBytes = image.stride();
+    const std::size_t pixelBytes = rowBytes * static_cast<std::size_t>(image.height);
+    return globalBlock(sizeof(BITMAPV5HEADER) + pixelBytes, [&](std::uint8_t* bytes) {
+        BITMAPV5HEADER header{};
+        header.bV5Size = sizeof(BITMAPV5HEADER);
+        header.bV5Width = image.width;
+        header.bV5Height = image.height;
+        header.bV5Planes = 1;
+        header.bV5BitCount = 32;
+        header.bV5Compression = BI_BITFIELDS;
+        header.bV5SizeImage = static_cast<DWORD>(pixelBytes);
+        header.bV5RedMask = 0x00FF0000;
+        header.bV5GreenMask = 0x0000FF00;
+        header.bV5BlueMask = 0x000000FF;
+        header.bV5AlphaMask = 0xFF000000;
+        header.bV5CSType = LCS_sRGB;
+        header.bV5Intent = LCS_GM_IMAGES;
+        std::memcpy(bytes, &header, sizeof(header));
+
+        std::uint8_t* pixels = bytes + sizeof(header);
+        for (int row = 0; row < image.height; ++row) {
+            const std::size_t srcRow = static_cast<std::size_t>(image.height - 1 - row);
+            std::memcpy(pixels + static_cast<std::size_t>(row) * rowBytes,
+                        image.bgra.data() + srcRow * rowBytes, rowBytes);
+        }
+    });
 }
 
 } // namespace
@@ -78,18 +69,22 @@ bool fillBytes(GlobalBlock& block, std::span<const std::uint8_t> bytes) {
 bool copyImageToClipboard(HWND owner, const core::Image& image, std::span<const std::uint8_t> png) {
     if (image.empty()) return false;
 
-    GlobalBlock dib;
-    if (!fillDibV5(dib, image)) return false;
-    GlobalBlock pngBlock;
+    GlobalBlock dib = dibV5(image);
+    if (!dib) return false;
     const UINT pngFormat = png.empty() ? 0 : RegisterClipboardFormatW(L"PNG");
-    if (pngFormat && !fillBytes(pngBlock, png)) return false;
+    GlobalBlock pngBlock;
+    if (pngFormat) {
+        pngBlock =
+            globalBlock(png.size(), [&](std::uint8_t* bytes) { std::memcpy(bytes, png.data(), png.size()); });
+        if (!pngBlock) return false;
+    }
 
     if (!openClipboard(owner)) return false;
     bool copied = false;
-    if (EmptyClipboard() && SetClipboardData(CF_DIBV5, dib.handle)) {
-        dib.handle = nullptr; // the clipboard owns it now
+    if (EmptyClipboard() && SetClipboardData(CF_DIBV5, dib.get())) {
+        dib.release(); // the clipboard owns it now
         copied = true;
-        if (pngFormat && SetClipboardData(pngFormat, pngBlock.handle)) pngBlock.handle = nullptr;
+        if (pngFormat && SetClipboardData(pngFormat, pngBlock.get())) pngBlock.release();
     }
     CloseClipboard();
     return copied;

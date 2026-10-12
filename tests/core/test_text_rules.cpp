@@ -168,7 +168,7 @@ TEST_CASE("disabled kinds have no rules") {
     auto count = [](const std::set<FindingKind>& disabled, Texts terms = {}) {
         int matches = 0;
         for (const auto& rule : defaultRules(std::move(terms), disabled))
-            matches += static_cast<int>(rule->find(U"juan@mail.com Zq8vR2mN5tX1pL9wK3sB7dF4 Ana").size());
+            matches += static_cast<int>(rule(U"juan@mail.com Zq8vR2mN5tX1pL9wK3sB7dF4 Ana").size());
         return matches;
     };
     CHECK(count({}, {U"Ana"}) == 3);

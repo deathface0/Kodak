@@ -49,7 +49,7 @@ using Texts = std::vector<std::u32string>;
 inline Texts found(std::u32string_view line, core::FindingKind kind, Texts userTerms = {}) {
     Texts out;
     for (const auto& rule : core::defaultRules(std::move(userTerms))) {
-        for (const core::TextMatch& match : rule->find(line)) {
+        for (const core::TextMatch& match : rule(line)) {
             if (match.kind == kind) out.emplace_back(line.substr(match.begin, match.end - match.begin));
         }
     }

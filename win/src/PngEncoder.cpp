@@ -1,32 +1,21 @@
 #include "kodak/win/PngEncoder.h"
 
-#include <windows.h>
-
-#include <wincodec.h>
-#include <wrl/client.h>
+#include "detail/Wic.h"
 
 namespace kodak::win {
 
-using Microsoft::WRL::ComPtr;
+using detail::ComPtr;
 
-std::optional<std::vector<std::uint8_t>> encodePng(const core::Image& image) {
-    if (image.empty()) return std::nullopt;
+std::vector<std::uint8_t> encodePng(const core::Image& image) {
+    if (image.empty()) return {};
 
-    ComPtr<IWICImagingFactory> factory;
-    if (FAILED(
-            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))))
-        return std::nullopt;
-
-    const auto width = static_cast<UINT>(image.width);
-    const auto height = static_cast<UINT>(image.height);
-    ComPtr<IWICBitmap> source;
-    if (FAILED(factory->CreateBitmapFromMemory(width, height, GUID_WICPixelFormat32bppBGRA, width * 4,
-                                               static_cast<UINT>(image.bgra.size()),
-                                               const_cast<BYTE*>(image.bgra.data()), &source)))
-        return std::nullopt;
+    const ComPtr<IWICImagingFactory> factory = detail::wicFactory();
+    if (!factory) return {};
+    const ComPtr<IWICBitmap> source = detail::toWicBitmap(factory.Get(), image);
+    if (!source) return {};
 
     ComPtr<IStream> stream;
-    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return std::nullopt;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return {};
 
     ComPtr<IWICBitmapEncoder> encoder;
     ComPtr<IWICBitmapFrameEncode> frame;
@@ -35,20 +24,20 @@ std::optional<std::vector<std::uint8_t>> encodePng(const core::Image& image) {
     if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) ||
         FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) ||
         FAILED(encoder->CreateNewFrame(&frame, nullptr)) || FAILED(frame->Initialize(nullptr)) ||
-        FAILED(frame->SetSize(width, height)) || FAILED(frame->SetPixelFormat(&format)) ||
-        FAILED(frame->WriteSource(source.Get(), nullptr)) || FAILED(frame->Commit()) ||
-        FAILED(encoder->Commit()))
-        return std::nullopt;
+        FAILED(frame->SetSize(static_cast<UINT>(image.width), static_cast<UINT>(image.height))) ||
+        FAILED(frame->SetPixelFormat(&format)) || FAILED(frame->WriteSource(source.Get(), nullptr)) ||
+        FAILED(frame->Commit()) || FAILED(encoder->Commit()))
+        return {};
 
     STATSTG stat{};
-    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME))) return std::nullopt;
+    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME))) return {};
     std::vector<std::uint8_t> png(static_cast<std::size_t>(stat.cbSize.QuadPart));
 
     const LARGE_INTEGER start{};
     ULONG read = 0;
     if (FAILED(stream->Seek(start, STREAM_SEEK_SET, nullptr)) ||
         FAILED(stream->Read(png.data(), static_cast<ULONG>(png.size()), &read)) || read != png.size())
-        return std::nullopt;
+        return {};
     return png;
 }
 

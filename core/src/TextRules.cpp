@@ -74,429 +74,378 @@ void forEachDigitRun(std::u32string_view s, std::u32string_view separators, Visi
     }
 }
 
+/// A match from each word start where `endAt(s, i)` finds one, skipping what it covers.
+template <typename EndAt> Matches matchWordStarts(std::u32string_view s, FindingKind kind, EndAt endAt) {
+    Matches out;
+    for (std::size_t i = 0; i < s.size();) {
+        const std::optional<std::size_t> end = startsWord(s, i) ? endAt(s, i) : std::nullopt;
+        if (end) {
+            out.push_back({i, *end, kind});
+            i = *end;
+        } else {
+            ++i;
+        }
+    }
+    return out;
+}
+
 // --- Rules ------------------------------------------------------------------------
 
-class EmailRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        auto isLocal = [](char32_t c) {
-            return isAlnum(c) || c == U'.' || c == U'_' || c == U'%' || c == U'+' || c == U'-';
-        };
-        auto isDomain = [](char32_t c) { return isAlnum(c) || c == U'.' || c == U'-'; };
+Matches findEmails(std::u32string_view line) {
+    auto isLocal = [](char32_t c) {
+        return isAlnum(c) || c == U'.' || c == U'_' || c == U'%' || c == U'+' || c == U'-';
+    };
+    auto isDomain = [](char32_t c) { return isAlnum(c) || c == U'.' || c == U'-'; };
 
-        Matches out;
-        for (std::size_t at = line.find(U'@'); at != npos; at = line.find(U'@', at + 1)) {
-            std::size_t begin = at;
-            while (begin > 0 && isLocal(line[begin - 1])) --begin;
-            while (begin < at && line[begin] == U'.') ++begin;
-            std::size_t end = at + 1;
-            while (end < line.size() && isDomain(line[end])) ++end;
-            while (end > at + 1 && (line[end - 1] == U'.' || line[end - 1] == U'-')) --end;
-            if (begin == at || end == at + 1 || line[at - 1] == U'.') continue;
+    Matches out;
+    for (std::size_t at = line.find(U'@'); at != npos; at = line.find(U'@', at + 1)) {
+        std::size_t begin = at;
+        while (begin > 0 && isLocal(line[begin - 1])) --begin;
+        while (begin < at && line[begin] == U'.') ++begin;
+        std::size_t end = at + 1;
+        while (end < line.size() && isDomain(line[end])) ++end;
+        while (end > at + 1 && (line[end - 1] == U'.' || line[end - 1] == U'-')) --end;
+        if (begin == at || end == at + 1 || line[at - 1] == U'.') continue;
 
-            const std::u32string_view domain = line.substr(at + 1, end - at - 1);
-            const std::size_t dot = domain.rfind(U'.');
-            if (dot == npos || dot == 0) continue;
-            const std::u32string_view tld = domain.substr(dot + 1);
-            if (tld.size() < 2 || !std::all_of(tld.begin(), tld.end(), isLetter)) continue;
-            out.push_back({begin, end, FindingKind::Email});
-        }
-        return out;
+        const std::u32string_view domain = line.substr(at + 1, end - at - 1);
+        const std::size_t dot = domain.rfind(U'.');
+        if (dot == npos || dot == 0) continue;
+        const std::u32string_view tld = domain.substr(dot + 1);
+        if (tld.size() < 2 || !std::all_of(tld.begin(), tld.end(), isLetter)) continue;
+        out.push_back({begin, end, FindingKind::Email});
     }
-};
+    return out;
+}
 
-class CardRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        const std::u32string text = normaliseDigits(line);
-        Matches out;
-        forEachDigitRun(text, U" -", [&](const std::vector<Group>& groups, bool endsAtBoundary) {
-            // The longest run of whole groups with 13-19 digits that passes Luhn, so
-            // "4111 1111 1111 1111 12/25" still finds the card before the expiry date.
-            for (std::size_t first = 0; first < groups.size();) {
-                std::optional<std::size_t> best;
-                for (std::size_t last = first; last < groups.size(); ++last) {
-                    if (last + 1 == groups.size() && !endsAtBoundary) break;
-                    const std::u32string digits = digitsOf(text, groups, first, last);
-                    if (digits.size() > 19) break;
-                    if (digits.size() >= 13 && luhnValid(digits)) best = last;
-                }
-                if (best) {
-                    out.push_back({groups[first].begin, groups[*best].end, FindingKind::Card});
-                    first = *best + 1;
-                } else {
-                    ++first;
-                }
+Matches findCards(std::u32string_view line) {
+    const std::u32string text = normaliseDigits(line);
+    Matches out;
+    forEachDigitRun(text, U" -", [&](const std::vector<Group>& groups, bool endsAtBoundary) {
+        // The longest run of whole groups with 13-19 digits that passes Luhn, so
+        // "4111 1111 1111 1111 12/25" still finds the card before the expiry date.
+        for (std::size_t first = 0; first < groups.size();) {
+            std::optional<std::size_t> best;
+            for (std::size_t last = first; last < groups.size(); ++last) {
+                if (last + 1 == groups.size() && !endsAtBoundary) break;
+                const std::u32string digits = digitsOf(text, groups, first, last);
+                if (digits.size() > 19) break;
+                if (digits.size() >= 13 && luhnValid(digits)) best = last;
             }
-        });
-        return out;
-    }
-};
-
-class IbanRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        const std::u32string text = normaliseDigits(line);
-        Matches out;
-        std::size_t i = 0;
-        while (i + 4 <= text.size()) {
-            if (!startsWord(text, i) || !isLetter(text[i]) || !isLetter(text[i + 1]) ||
-                !isDigit(text[i + 2]) || !isDigit(text[i + 3])) {
-                ++i;
-                continue;
-            }
-            // Alphanumeric groups separated by single spaces ("ES91 2100 0418 ...").
-            std::vector<Group> groups;
-            std::u32string compact;
-            std::size_t k = i;
-            while (k < text.size() && isAlnum(text[k]) && compact.size() < 34) {
-                const std::size_t begin = k;
-                while (k < text.size() && isAlnum(text[k])) ++k;
-                groups.push_back({begin, k});
-                compact += text.substr(begin, k - begin);
-                if (k + 1 < text.size() && text[k] == U' ' && isAlnum(text[k + 1])) ++k;
-            }
-            // The longest prefix of whole groups that is a valid IBAN.
-            std::optional<std::size_t> end;
-            std::size_t length = compact.size();
-            for (std::size_t g = groups.size(); g-- > 0;) {
-                if (endsWord(text, groups[g].end) &&
-                    ibanValid(std::u32string_view(compact).substr(0, length))) {
-                    end = groups[g].end;
-                    break;
-                }
-                length -= groups[g].end - groups[g].begin;
-            }
-            if (end) {
-                out.push_back({i, *end, FindingKind::Iban});
-                i = *end;
+            if (best) {
+                out.push_back({groups[first].begin, groups[*best].end, FindingKind::Card});
+                first = *best + 1;
             } else {
-                ++i;
+                ++first;
             }
         }
-        return out;
-    }
-};
+    });
+    return out;
+}
 
-class DniNieRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        const std::u32string text = normaliseDigits(line);
-        Matches out;
-        for (std::size_t i = 0; i < text.size();) {
-            const std::optional<std::size_t> end = startsWord(text, i) ? idEndingAt(text, i) : std::nullopt;
-            if (end) {
-                out.push_back({i, *end, FindingKind::DniNie});
-                i = *end;
-            } else {
-                ++i;
-            }
-        }
-        return out;
-    }
-
-private:
-    /// "12345678Z", "12345678-Z", "X1234567L", "X-1234567-L": where the ID starting at `i` ends.
-    static std::optional<std::size_t> idEndingAt(std::u32string_view s, std::size_t i) {
-        auto digitsAt = [&](std::size_t at, std::size_t count) {
-            if (at + count > s.size()) return false;
-            for (std::size_t k = at; k < at + count; ++k) {
-                if (!isDigit(s[k])) return false;
-            }
-            return true;
-        };
-        auto skipDash = [&](std::size_t at) {
-            return at < s.size() && (s[at] == U'-' || s[at] == U' ') ? at + 1 : at;
-        };
-        auto letterEnd = [&](std::size_t at, std::u32string id) -> std::optional<std::size_t> {
-            at = skipDash(at);
-            if (at >= s.size() || !isLetter(s[at]) || !endsWord(s, at + 1)) return std::nullopt;
-            id += s[at];
-            if (dniValid(id) || nieValid(id)) return at + 1;
-            return std::nullopt;
-        };
-
-        if (digitsAt(i, 8)) return letterEnd(i + 8, std::u32string(s.substr(i, 8)));
-        const char32_t prefix = toUpper(s[i]);
-        if (prefix == U'X' || prefix == U'Y' || prefix == U'Z') {
-            const std::size_t at = skipDash(i + 1);
-            if (digitsAt(at, 7))
-                return letterEnd(at + 7, std::u32string(1, prefix) + std::u32string(s.substr(at, 7)));
-        }
+/// Where the longest valid IBAN of whole groups starting at `i` ends.
+std::optional<std::size_t> ibanEndingAt(std::u32string_view s, std::size_t i) {
+    if (i + 4 > s.size() || !isLetter(s[i]) || !isLetter(s[i + 1]) || !isDigit(s[i + 2]) ||
+        !isDigit(s[i + 3]))
         return std::nullopt;
+    // Alphanumeric groups separated by single spaces ("ES91 2100 0418 ...").
+    std::vector<Group> groups;
+    std::u32string compact;
+    std::size_t k = i;
+    while (k < s.size() && isAlnum(s[k]) && compact.size() < 34) {
+        const std::size_t begin = k;
+        while (k < s.size() && isAlnum(s[k])) ++k;
+        groups.push_back({begin, k});
+        compact += s.substr(begin, k - begin);
+        if (k + 1 < s.size() && s[k] == U' ' && isAlnum(s[k + 1])) ++k;
     }
-};
-
-class PhoneRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        const std::u32string text = normaliseDigits(line);
-        Matches out;
-        forEachDigitRun(text, U" .-", [&](const std::vector<Group>& groups, bool endsAtBoundary) {
-            const bool plus = groups.front().begin > 0 && text[groups.front().begin - 1] == U'+';
-            for (std::size_t first = 0; first < groups.size();) {
-                bool found = false;
-                for (std::size_t last = first; last < groups.size(); ++last) {
-                    if (last + 1 == groups.size() && !endsAtBoundary) break;
-                    const std::u32string digits = digitsOf(text, groups, first, last);
-                    if (digits.size() > 13) break;
-                    const bool withPlus = plus && first == 0;
-                    if (isPhone(digits, withPlus)) {
-                        const std::size_t begin =
-                            withPlus && digits.size() == 11 ? groups[first].begin - 1 : groups[first].begin;
-                        out.push_back({begin, groups[last].end, FindingKind::Phone});
-                        first = last + 1;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) ++first;
-            }
-        });
-        return out;
+    std::size_t length = compact.size();
+    for (std::size_t g = groups.size(); g-- > 0;) {
+        if (endsWord(s, groups[g].end) && ibanValid(std::u32string_view(compact).substr(0, length)))
+            return groups[g].end;
+        length -= groups[g].end - groups[g].begin;
     }
+    return std::nullopt;
+}
 
-private:
-    /// Spanish numbers: 9 digits starting 6-9, optionally after +34 or 0034.
-    static bool isPhone(std::u32string_view d, bool plus) noexcept {
-        auto national = [](char32_t c) { return c >= U'6' && c <= U'9'; };
-        if (d.size() == 9) return national(d[0]);
-        if (plus && d.size() == 11 && d.starts_with(U"34")) return national(d[2]);
-        if (d.size() == 13 && d.starts_with(U"0034")) return national(d[4]);
-        return false;
-    }
-};
+Matches findIbans(std::u32string_view line) {
+    return matchWordStarts(normaliseDigits(line), FindingKind::Iban, ibanEndingAt);
+}
 
-class Ipv4Rule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        const std::u32string text = normaliseDigits(line);
-        Matches out;
-        std::size_t i = 0;
-        while (i < text.size()) {
-            if (!isDigit(text[i]) || !(i == 0 || (!isWordChar(text[i - 1]) && text[i - 1] != U'.'))) {
-                ++i;
-                continue;
-            }
-            std::size_t end = i;
-            while (end < text.size() && (isDigit(text[end]) || text[end] == U'.')) ++end;
-            const std::size_t next = end;
-            while (end > i && text[end - 1] == U'.') --end; // a full stop after the address
-            if (endsWord(text, end) && ipv4Valid(std::u32string_view(text).substr(i, end - i)))
-                out.push_back({i, end, FindingKind::Ip});
-            i = next;
+/// "12345678Z", "12345678-Z", "X1234567L", "X-1234567-L": where the ID starting at `i` ends.
+std::optional<std::size_t> dniNieEndingAt(std::u32string_view s, std::size_t i) {
+    auto digitsAt = [&](std::size_t at, std::size_t count) {
+        if (at + count > s.size()) return false;
+        for (std::size_t k = at; k < at + count; ++k) {
+            if (!isDigit(s[k])) return false;
         }
-        return out;
-    }
-};
-
-/// API keys and tokens with a known shape.
-class SecretFormatRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        Matches out;
-        for (const Prefixed& pattern : prefixed) findPrefixed(line, pattern, out);
-        findJwts(line, out);
-        findPrivateKeyHeaders(line, out);
-        return out;
-    }
-
-private:
-    using CharClass = bool (*)(char32_t);
-    struct Prefixed {
-        std::u32string_view prefix;
-        std::size_t minRest;
-        std::size_t maxRest;
-        CharClass allowed;
+        return true;
+    };
+    auto skipDash = [&](std::size_t at) {
+        return at < s.size() && (s[at] == U'-' || s[at] == U' ') ? at + 1 : at;
+    };
+    auto letterEnd = [&](std::size_t at, std::u32string id) -> std::optional<std::size_t> {
+        at = skipDash(at);
+        if (at >= s.size() || !isLetter(s[at]) || !endsWord(s, at + 1)) return std::nullopt;
+        id += s[at];
+        if (dniValid(id) || nieValid(id)) return at + 1;
+        return std::nullopt;
     };
 
-    static bool upperOrDigit(char32_t c) noexcept { return isUpper(c) || isDigit(c); }
-    static bool alnum(char32_t c) noexcept { return isAlnum(c); }
-    static bool alnumOrUnderscore(char32_t c) noexcept { return isAlnum(c) || c == U'_'; }
-    static bool base64Url(char32_t c) noexcept { return isAlnum(c) || c == U'_' || c == U'-'; }
-
-    static constexpr std::array<Prefixed, 11> prefixed{{
-        {U"AKIA", 16, 16, upperOrDigit}, // AWS access key ID
-        {U"ASIA", 16, 16, upperOrDigit}, // AWS temporary access key ID
-        {U"ghp_", 36, 36, alnum},        // GitHub tokens
-        {U"gho_", 36, 36, alnum},
-        {U"ghu_", 36, 36, alnum},
-        {U"ghs_", 36, 36, alnum},
-        {U"ghr_", 36, 36, alnum},
-        {U"github_pat_", 22, 255, alnumOrUnderscore},
-        {U"AIza", 35, 35, base64Url},  // Google API key
-        {U"sk_live_", 24, 255, alnum}, // Stripe
-        {U"rk_live_", 24, 255, alnum},
-    }};
-
-    static void findPrefixed(std::u32string_view line, const Prefixed& pattern, Matches& out) {
-        for (std::size_t at = line.find(pattern.prefix); at != npos; at = line.find(pattern.prefix, at + 1)) {
-            if (at > 0 && isAlnum(line[at - 1])) continue;
-            std::size_t end = at + pattern.prefix.size();
-            while (end < line.size() && pattern.allowed(line[end])) ++end;
-            const std::size_t rest = end - at - pattern.prefix.size();
-            if (rest >= pattern.minRest && rest <= pattern.maxRest && endsWord(line, end))
-                out.push_back({at, end, FindingKind::Secret});
-        }
+    if (digitsAt(i, 8)) return letterEnd(i + 8, std::u32string(s.substr(i, 8)));
+    const char32_t prefix = toUpper(s[i]);
+    if (prefix == U'X' || prefix == U'Y' || prefix == U'Z') {
+        const std::size_t at = skipDash(i + 1);
+        if (digitsAt(at, 7))
+            return letterEnd(at + 7, std::u32string(1, prefix) + std::u32string(s.substr(at, 7)));
     }
+    return std::nullopt;
+}
 
-    /// "eyJ<header>.eyJ<payload>.<signature>"
-    static void findJwts(std::u32string_view line, Matches& out) {
-        for (std::size_t at = line.find(U"eyJ"); at != npos; at = line.find(U"eyJ", at + 1)) {
-            if (at > 0 && base64Url(line[at - 1])) continue;
-            std::size_t end = at;
-            std::array<std::size_t, 3> partBegin{};
-            std::size_t parts = 0;
-            while (parts < 3) {
-                partBegin[parts] = end;
-                while (end < line.size() && base64Url(line[end])) ++end;
-                if (end == partBegin[parts]) break;
-                ++parts;
-                if (parts < 3 && end < line.size() && line[end] == U'.') {
-                    ++end;
-                } else {
+Matches findDniNies(std::u32string_view line) {
+    return matchWordStarts(normaliseDigits(line), FindingKind::DniNie, dniNieEndingAt);
+}
+
+/// Spanish numbers: 9 digits starting 6-9, optionally after +34 or 0034.
+bool isSpanishPhone(std::u32string_view d, bool plus) noexcept {
+    auto national = [](char32_t c) { return c >= U'6' && c <= U'9'; };
+    if (d.size() == 9) return national(d[0]);
+    if (plus && d.size() == 11 && d.starts_with(U"34")) return national(d[2]);
+    if (d.size() == 13 && d.starts_with(U"0034")) return national(d[4]);
+    return false;
+}
+
+Matches findPhones(std::u32string_view line) {
+    const std::u32string text = normaliseDigits(line);
+    Matches out;
+    forEachDigitRun(text, U" .-", [&](const std::vector<Group>& groups, bool endsAtBoundary) {
+        const bool plus = groups.front().begin > 0 && text[groups.front().begin - 1] == U'+';
+        for (std::size_t first = 0; first < groups.size();) {
+            bool found = false;
+            for (std::size_t last = first; last < groups.size(); ++last) {
+                if (last + 1 == groups.size() && !endsAtBoundary) break;
+                const std::u32string digits = digitsOf(text, groups, first, last);
+                if (digits.size() > 13) break;
+                const bool withPlus = plus && first == 0;
+                if (isSpanishPhone(digits, withPlus)) {
+                    const std::size_t begin =
+                        withPlus && digits.size() == 11 ? groups[first].begin - 1 : groups[first].begin;
+                    out.push_back({begin, groups[last].end, FindingKind::Phone});
+                    first = last + 1;
+                    found = true;
                     break;
                 }
             }
-            if (parts == 3 && line.substr(partBegin[1]).starts_with(U"eyJ") && endsWord(line, end)) {
-                out.push_back({at, end, FindingKind::Secret});
-                at = end - 1;
-            }
+            if (!found) ++first;
         }
-    }
+    });
+    return out;
+}
 
-    /// "-----BEGIN RSA PRIVATE KEY-----": the key lines below are caught by the entropy rule.
-    static void findPrivateKeyHeaders(std::u32string_view line, Matches& out) {
-        constexpr std::u32string_view begin = U"-----BEGIN ";
-        constexpr std::u32string_view tail = U"PRIVATE KEY-----";
-        for (std::size_t at = line.find(begin); at != npos; at = line.find(begin, at + 1)) {
-            const std::size_t t = line.find(tail, at + begin.size());
-            if (t == npos) break;
-            out.push_back({at, t + tail.size(), FindingKind::Secret});
-            at = t;
+Matches findIpv4s(std::u32string_view line) {
+    const std::u32string text = normaliseDigits(line);
+    Matches out;
+    std::size_t i = 0;
+    while (i < text.size()) {
+        if (!isDigit(text[i]) || !(i == 0 || (!isWordChar(text[i - 1]) && text[i - 1] != U'.'))) {
+            ++i;
+            continue;
         }
+        std::size_t end = i;
+        while (end < text.size() && (isDigit(text[end]) || text[end] == U'.')) ++end;
+        const std::size_t next = end;
+        while (end > i && text[end - 1] == U'.') --end; // a full stop after the address
+        if (endsWord(text, end) && ipv4Valid(std::u32string_view(text).substr(i, end - i)))
+            out.push_back({i, end, FindingKind::Ip});
+        i = next;
     }
+    return out;
+}
+
+// --- Secrets with a known shape ---------------------------------------------------
+
+bool upperOrDigit(char32_t c) noexcept { return isUpper(c) || isDigit(c); }
+bool alnumOrUnderscore(char32_t c) noexcept { return isAlnum(c) || c == U'_'; }
+bool base64Url(char32_t c) noexcept { return isAlnum(c) || c == U'_' || c == U'-'; }
+
+/// A token made of a fixed prefix and `minRest` to `maxRest` `allowed` characters.
+struct Prefixed {
+    std::u32string_view prefix;
+    std::size_t minRest;
+    std::size_t maxRest;
+    bool (*allowed)(char32_t);
 };
 
-/// Passwords and keys with no known shape: long tokens that mix upper case,
-/// lower case and digits and look random.
-class HighEntropyRule final : public TextRule {
-public:
-    static constexpr std::size_t minLength = 20;
+constexpr std::array<Prefixed, 11> prefixedSecrets{{
+    {U"AKIA", 16, 16, upperOrDigit}, // AWS access key ID
+    {U"ASIA", 16, 16, upperOrDigit}, // AWS temporary access key ID
+    {U"ghp_", 36, 36, isAlnum},      // GitHub tokens
+    {U"gho_", 36, 36, isAlnum},
+    {U"ghu_", 36, 36, isAlnum},
+    {U"ghs_", 36, 36, isAlnum},
+    {U"ghr_", 36, 36, isAlnum},
+    {U"github_pat_", 22, 255, alnumOrUnderscore},
+    {U"AIza", 35, 35, base64Url},    // Google API key
+    {U"sk_live_", 24, 255, isAlnum}, // Stripe
+    {U"rk_live_", 24, 255, isAlnum},
+}};
 
-    Matches find(std::u32string_view line) const override {
-        auto isTokenChar = [](char32_t c) {
-            return isAlnum(c) || c == U'+' || c == U'/' || c == U'_' || c == U'-';
-        };
-        Matches out;
-        std::size_t i = 0;
-        while (i < line.size()) {
-            if (!isTokenChar(line[i])) {
-                ++i;
-                continue;
-            }
-            const std::size_t begin = i;
-            while (i < line.size() && isTokenChar(line[i])) ++i;
-            std::size_t end = i;
-            while (end < line.size() && end - i < 2 && line[end] == U'=') ++end; // base64 padding
-            const std::u32string_view token = line.substr(begin, end - begin);
-            if (looksRandom(token)) out.push_back({begin, end, FindingKind::Secret});
-            i = end;
-        }
-        return out;
+void findPrefixed(std::u32string_view line, const Prefixed& pattern, Matches& out) {
+    for (std::size_t at = line.find(pattern.prefix); at != npos; at = line.find(pattern.prefix, at + 1)) {
+        if (at > 0 && isAlnum(line[at - 1])) continue;
+        std::size_t end = at + pattern.prefix.size();
+        while (end < line.size() && pattern.allowed(line[end])) ++end;
+        const std::size_t rest = end - at - pattern.prefix.size();
+        if (rest >= pattern.minRest && rest <= pattern.maxRest && endsWord(line, end))
+            out.push_back({at, end, FindingKind::Secret});
     }
+}
 
-    /// The entropy a token of `length` characters needs: random keys reach it
-    /// (about 4.55 bits for 32 base-62 characters), readable identifiers of that
-    /// length stay below (about 4.1).
-    static double threshold(std::size_t length) noexcept {
-        return std::min(4.5, 0.85 * std::log2(static_cast<double>(length)));
-    }
-
-private:
-    static bool looksRandom(std::u32string_view token) noexcept {
-        if (token.size() < minLength) return false;
-        const bool upper = std::any_of(token.begin(), token.end(), isUpper);
-        const bool lower = std::any_of(token.begin(), token.end(), isLower);
-        const bool digit = std::any_of(token.begin(), token.end(), isDigit);
-        return upper && lower && digit && shannonEntropy(token) >= threshold(token.size());
-    }
-};
-
-/// The user's own terms (name, address...), ignoring case and accents.
-class UserTermRule final : public TextRule {
-public:
-    explicit UserTermRule(std::vector<std::u32string> terms) {
-        for (const std::u32string& term : terms) {
-            std::u32string folded = foldForSearch(term);
-            const std::size_t first = folded.find_first_not_of(U' ');
-            if (first == npos) continue;
-            folded = folded.substr(first, folded.find_last_not_of(U' ') - first + 1);
-            terms_.push_back(std::move(folded));
-        }
-    }
-
-    Matches find(std::u32string_view line) const override {
-        const std::u32string folded = foldForSearch(line);
-        Matches out;
-        for (const std::u32string& term : terms_) {
-            for (std::size_t at = folded.find(term); at != npos; at = folded.find(term, at + 1)) {
-                if (startsWord(folded, at) && endsWord(folded, at + term.size()))
-                    out.push_back({at, at + term.size(), FindingKind::UserTerm});
+/// "eyJ<header>.eyJ<payload>.<signature>"
+void findJwts(std::u32string_view line, Matches& out) {
+    for (std::size_t at = line.find(U"eyJ"); at != npos; at = line.find(U"eyJ", at + 1)) {
+        if (at > 0 && base64Url(line[at - 1])) continue;
+        std::size_t end = at;
+        std::array<std::size_t, 3> partBegin{};
+        std::size_t parts = 0;
+        while (parts < 3) {
+            partBegin[parts] = end;
+            while (end < line.size() && base64Url(line[end])) ++end;
+            if (end == partBegin[parts]) break;
+            ++parts;
+            if (parts < 3 && end < line.size() && line[end] == U'.') {
+                ++end;
+            } else {
+                break;
             }
         }
-        return out;
+        if (parts == 3 && line.substr(partBegin[1]).starts_with(U"eyJ") && endsWord(line, end)) {
+            out.push_back({at, end, FindingKind::Secret});
+            at = end - 1;
+        }
     }
+}
 
-private:
-    std::vector<std::u32string> terms_;
-};
+/// "-----BEGIN RSA PRIVATE KEY-----": the key lines below are caught by findRandomTokens.
+void findPrivateKeyHeaders(std::u32string_view line, Matches& out) {
+    constexpr std::u32string_view begin = U"-----BEGIN ";
+    constexpr std::u32string_view tail = U"PRIVATE KEY-----";
+    for (std::size_t at = line.find(begin); at != npos; at = line.find(begin, at + 1)) {
+        const std::size_t t = line.find(tail, at + begin.size());
+        if (t == npos) break;
+        out.push_back({at, t + tail.size(), FindingKind::Secret});
+        at = t;
+    }
+}
+
+/// API keys and tokens with a known shape.
+Matches findKnownSecrets(std::u32string_view line) {
+    Matches out;
+    for (const Prefixed& pattern : prefixedSecrets) findPrefixed(line, pattern, out);
+    findJwts(line, out);
+    findPrivateKeyHeaders(line, out);
+    return out;
+}
+
+// --- Other rules ------------------------------------------------------------------
+
+/// Passwords and keys with no known shape: tokens of 20 characters or more that
+/// mix upper case, lower case and digits and look random. A token of `length`
+/// characters needs min(4.5, 0.85 * log2(length)) bits of entropy per character:
+/// random keys reach it (about 4.55 bits for 32 base-62 characters), readable
+/// identifiers of that length stay below (about 4.1).
+bool looksRandom(std::u32string_view token) noexcept {
+    if (token.size() < 20) return false;
+    const bool upper = std::any_of(token.begin(), token.end(), isUpper);
+    const bool lower = std::any_of(token.begin(), token.end(), isLower);
+    const bool digit = std::any_of(token.begin(), token.end(), isDigit);
+    const double threshold = std::min(4.5, 0.85 * std::log2(static_cast<double>(token.size())));
+    return upper && lower && digit && shannonEntropy(token) >= threshold;
+}
+
+Matches findRandomTokens(std::u32string_view line) {
+    auto isTokenChar = [](char32_t c) {
+        return isAlnum(c) || c == U'+' || c == U'/' || c == U'_' || c == U'-';
+    };
+    Matches out;
+    std::size_t i = 0;
+    while (i < line.size()) {
+        if (!isTokenChar(line[i])) {
+            ++i;
+            continue;
+        }
+        const std::size_t begin = i;
+        while (i < line.size() && isTokenChar(line[i])) ++i;
+        std::size_t end = i;
+        while (end < line.size() && end - i < 2 && line[end] == U'=') ++end; // base64 padding
+        if (looksRandom(line.substr(begin, end - begin))) out.push_back({begin, end, FindingKind::Secret});
+        i = end;
+    }
+    return out;
+}
+
+/// The user's own `terms` (already folded), ignoring case and accents.
+Matches findTerms(std::u32string_view line, const std::vector<std::u32string>& terms) {
+    const std::u32string folded = foldForSearch(line);
+    Matches out;
+    for (const std::u32string& term : terms) {
+        for (std::size_t at = folded.find(term); at != npos; at = folded.find(term, at + 1)) {
+            if (startsWord(folded, at) && endsWord(folded, at + term.size()))
+                out.push_back({at, at + term.size(), FindingKind::UserTerm});
+        }
+    }
+    return out;
+}
 
 /// "Password: hunter2", "PIN = 1234": the rest of the line after a label.
-class ContextRule final : public TextRule {
-public:
-    Matches find(std::u32string_view line) const override {
-        // Folded (lower case, no accents), so "contrasena" also matches the accented spelling.
-        static constexpr std::array<std::u32string_view, 11> labels{
-            U"password", U"pass",  U"passwd",  U"pwd", U"contrasena", U"pin",
-            U"token",    U"clave", U"api key", U"cvv", U"secret"};
+Matches findContextValues(std::u32string_view line) {
+    // Folded (lower case, no accents), so "contrasena" also matches the accented spelling.
+    static constexpr std::array<std::u32string_view, 11> labels{U"password",   U"pass", U"passwd", U"pwd",
+                                                                U"contrasena", U"pin",  U"token",  U"clave",
+                                                                U"api key",    U"cvv",  U"secret"};
 
-        const std::u32string folded = foldForSearch(line);
-        std::size_t valueEnd = line.size();
-        while (valueEnd > 0 && isSpace(line[valueEnd - 1])) --valueEnd;
+    const std::u32string folded = foldForSearch(line);
+    std::size_t valueEnd = line.size();
+    while (valueEnd > 0 && isSpace(line[valueEnd - 1])) --valueEnd;
 
-        Matches out;
-        for (const std::u32string_view label : labels) {
-            for (std::size_t at = folded.find(label); at != npos; at = folded.find(label, at + 1)) {
-                if (!startsWord(folded, at) || !endsWord(folded, at + label.size())) continue;
-                std::size_t k = skipSpaces(line, at + label.size());
-                if (k >= line.size() || (line[k] != U':' && line[k] != U'=')) continue;
-                k = skipSpaces(line, k + 1);
-                if (k < valueEnd) out.push_back({k, valueEnd, FindingKind::ContextValue});
-            }
+    Matches out;
+    for (const std::u32string_view label : labels) {
+        for (std::size_t at = folded.find(label); at != npos; at = folded.find(label, at + 1)) {
+            if (!startsWord(folded, at) || !endsWord(folded, at + label.size())) continue;
+            std::size_t k = skipSpaces(line, at + label.size());
+            if (k >= line.size() || (line[k] != U':' && line[k] != U'=')) continue;
+            k = skipSpaces(line, k + 1);
+            if (k < valueEnd) out.push_back({k, valueEnd, FindingKind::ContextValue});
         }
-        return out;
     }
-};
+    return out;
+}
 
 } // namespace
 
-std::vector<std::unique_ptr<TextRule>> defaultRules(std::vector<std::u32string> userTerms,
-                                                    const std::set<FindingKind>& disabled) {
-    std::vector<std::unique_ptr<TextRule>> rules;
-    auto add = [&](FindingKind kind, std::unique_ptr<TextRule> rule) {
+std::vector<TextRule> defaultRules(const std::vector<std::u32string>& userTerms,
+                                   const std::set<FindingKind>& disabled) {
+    std::vector<TextRule> rules;
+    auto add = [&](FindingKind kind, TextRule rule) {
         if (!disabled.contains(kind)) rules.push_back(std::move(rule));
     };
-    add(FindingKind::Email, std::make_unique<EmailRule>());
-    add(FindingKind::Card, std::make_unique<CardRule>());
-    add(FindingKind::Iban, std::make_unique<IbanRule>());
-    add(FindingKind::DniNie, std::make_unique<DniNieRule>());
-    add(FindingKind::Phone, std::make_unique<PhoneRule>());
-    add(FindingKind::Ip, std::make_unique<Ipv4Rule>());
-    add(FindingKind::Secret, std::make_unique<SecretFormatRule>());
-    add(FindingKind::Secret, std::make_unique<HighEntropyRule>());
-    if (!userTerms.empty()) add(FindingKind::UserTerm, std::make_unique<UserTermRule>(std::move(userTerms)));
-    add(FindingKind::ContextValue, std::make_unique<ContextRule>());
+    add(FindingKind::Email, findEmails);
+    add(FindingKind::Card, findCards);
+    add(FindingKind::Iban, findIbans);
+    add(FindingKind::DniNie, findDniNies);
+    add(FindingKind::Phone, findPhones);
+    add(FindingKind::Ip, findIpv4s);
+    add(FindingKind::Secret, findKnownSecrets);
+    add(FindingKind::Secret, findRandomTokens);
+    if (!userTerms.empty()) {
+        std::vector<std::u32string> folded;
+        for (const std::u32string& term : userTerms) {
+            if (const auto trimmed = trimSpaces(term); !trimmed.empty())
+                folded.push_back(foldForSearch(trimmed));
+        }
+        add(FindingKind::UserTerm,
+            [terms = std::move(folded)](std::u32string_view line) { return findTerms(line, terms); });
+    }
+    add(FindingKind::ContextValue, findContextValues);
     return rules;
 }
 

@@ -2,6 +2,7 @@
 
 #include "kodak/core/Geometry.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -9,6 +10,8 @@ namespace kodak::core {
 
 /// 32-bit BGRA pixels, rows top to bottom with no padding (stride = width * 4).
 struct Image {
+    static constexpr std::size_t bytesPerPixel = 4;
+
     int width = 0;
     int height = 0;
     std::vector<std::uint8_t> bgra;
@@ -19,6 +22,11 @@ struct Image {
 
     bool empty() const noexcept { return width <= 0 || height <= 0; }
     Rect bounds() const noexcept { return {0, 0, width, height}; }
+    std::size_t stride() const noexcept { return static_cast<std::size_t>(width) * bytesPerPixel; }
+    /// Where pixel `p` starts in `bgra`.
+    std::size_t offsetOf(Point p) const noexcept {
+        return static_cast<std::size_t>(p.y) * stride() + static_cast<std::size_t>(p.x) * bytesPerPixel;
+    }
 };
 
 /// A copy of the part of `area` that lies inside `image`; empty if they do not overlap.

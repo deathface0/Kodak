@@ -1,10 +1,6 @@
 #include "kodak/win/CaptureFiles.h"
 
-#include <windows.h>
-
-#include <shlobj.h>
-
-#include <system_error>
+#include "detail/KnownFolder.h"
 
 namespace kodak::win {
 
@@ -22,19 +18,7 @@ struct FileHandle {
 } // namespace
 
 std::optional<std::filesystem::path> capturesFolder() {
-    PWSTR pictures = nullptr;
-    const HRESULT result = SHGetKnownFolderPath(FOLDERID_Pictures, KF_FLAG_CREATE, nullptr, &pictures);
-    if (FAILED(result)) {
-        CoTaskMemFree(pictures);
-        return std::nullopt;
-    }
-    std::filesystem::path folder = std::filesystem::path(pictures) / L"Kodak";
-    CoTaskMemFree(pictures);
-
-    std::error_code error;
-    std::filesystem::create_directories(folder, error);
-    if (error || !std::filesystem::is_directory(folder, error)) return std::nullopt;
-    return folder;
+    return detail::knownSubfolder(FOLDERID_Pictures, L"Kodak");
 }
 
 bool writeNewFile(const std::filesystem::path& file, std::span<const std::uint8_t> bytes) {

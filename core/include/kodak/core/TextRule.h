@@ -3,7 +3,7 @@
 #include "kodak/core/Finding.h"
 
 #include <cstddef>
-#include <memory>
+#include <functional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -21,17 +21,13 @@ struct TextMatch {
 };
 
 /// Finds one kind of sensitive data in a line of recognised text.
-class TextRule {
-public:
-    virtual ~TextRule() = default;
-    virtual std::vector<TextMatch> find(std::u32string_view line) const = 0;
-};
+using TextRule = std::function<std::vector<TextMatch>(std::u32string_view line)>;
 
 /// Every rule of the plan (e-mail, card, IBAN, DNI/NIE, phone, IPv4, known
 /// secret formats, high-entropy tokens, labelled values) plus one for
 /// `userTerms` when there are any, leaving out the kinds in `disabled`
 /// (FindingKind::Secret covers both the known formats and the entropy rule).
-std::vector<std::unique_ptr<TextRule>> defaultRules(std::vector<std::u32string> userTerms = {},
-                                                    const std::set<FindingKind>& disabled = {});
+std::vector<TextRule> defaultRules(const std::vector<std::u32string>& userTerms = {},
+                                   const std::set<FindingKind>& disabled = {});
 
 } // namespace kodak::core

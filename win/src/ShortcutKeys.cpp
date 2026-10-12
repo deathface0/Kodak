@@ -25,27 +25,8 @@ constexpr bool isLetterOrDigit(UINT code) noexcept {
     return (code >= 'A' && code <= 'Z') || (code >= '0' && code <= '9');
 }
 
-std::optional<UINT> virtualKeyOf(const std::string& key) {
-    if (key.size() == 1 && isLetterOrDigit(static_cast<unsigned char>(key[0])))
-        return static_cast<UINT>(key[0]); // VK codes of letters and digits are their ASCII codes
-
-    if (key.size() >= 2 && key.size() <= 3 && key[0] == 'F') {
-        int number = 0;
-        for (std::size_t i = 1; i < key.size(); ++i) {
-            if (key[i] < '0' || key[i] > '9') return std::nullopt;
-            number = number * 10 + (key[i] - '0');
-        }
-        if (number >= 1 && number <= 24) return static_cast<UINT>(VK_F1 + number - 1);
-        return std::nullopt;
-    }
-
-    for (const auto& [name, code] : namedKeys) {
-        if (key == name) return code;
-    }
-    return std::nullopt;
-}
-
 std::optional<std::string> keyNameOf(UINT code) {
+    // VK codes of letters and digits are their ASCII codes.
     if (isLetterOrDigit(code)) return std::string(1, static_cast<char>(code));
     if (code >= VK_F1 && code <= VK_F24) return "F" + std::to_string(code - VK_F1 + 1);
     for (const auto& [name, known] : namedKeys) {
@@ -57,15 +38,17 @@ std::optional<std::string> keyNameOf(UINT code) {
 } // namespace
 
 std::optional<HotkeyCode> toHotkey(const core::Shortcut& shortcut) {
-    const std::optional<UINT> key = virtualKeyOf(shortcut.key);
-    if (!key) return std::nullopt;
-
-    HotkeyCode code{0, *key};
-    if (shortcut.ctrl) code.modifiers |= MOD_CONTROL;
-    if (shortcut.alt) code.modifiers |= MOD_ALT;
-    if (shortcut.shift) code.modifiers |= MOD_SHIFT;
-    if (shortcut.win) code.modifiers |= MOD_WIN;
-    return code;
+    // The inverse of keyNameOf: every key Kodak supports has a code below 256.
+    for (UINT key = 1; key < 256; ++key) {
+        if (keyNameOf(key) != shortcut.key) continue;
+        HotkeyCode code{0, key};
+        if (shortcut.ctrl) code.modifiers |= MOD_CONTROL;
+        if (shortcut.alt) code.modifiers |= MOD_ALT;
+        if (shortcut.shift) code.modifiers |= MOD_SHIFT;
+        if (shortcut.win) code.modifiers |= MOD_WIN;
+        return code;
+    }
+    return std::nullopt;
 }
 
 std::optional<core::Shortcut> fromHotkey(UINT modifiers, UINT virtualKey) {

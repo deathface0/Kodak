@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Overlay.h"
+#include "WindowOwner.h"
 
 #include <kodak/core/Settings.h>
 #include <kodak/win/GdiScreenSource.h>
-#include <kodak/win/GlobalHotkey.h>
 #include <kodak/win/TrayIcon.h>
 
 #include <windows.h>
@@ -17,7 +17,9 @@
 namespace kodak::app {
 
 /// Owns the hidden main window, the tray icon, the hotkey and the overlay.
-class App {
+class App : WindowOwner<App> {
+    friend WindowOwner<App>;
+
 public:
     explicit App(HINSTANCE instance);
     ~App();
@@ -32,7 +34,6 @@ public:
     int run();
 
 private:
-    static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handle(UINT message, WPARAM wParam, LPARAM lParam);
 
     void capture();
@@ -53,13 +54,12 @@ private:
 
     HINSTANCE instance_;
     HICON trayIcon_ = nullptr; // owned: loaded for the tray's DPI
-    HWND window_ = nullptr;
     core::Settings settings_;
     std::optional<std::filesystem::path> settingsPath_;
     bool settingsFileHadErrors_ = false;
     HWND settingsDialog_ = nullptr;
     std::unique_ptr<win::TrayIcon> tray_;
-    std::unique_ptr<win::GlobalHotkey> hotkey_;
+    bool hotkeyRegistered_ = false;
     win::GdiScreenSource screen_;
     Overlay overlay_;
 };
